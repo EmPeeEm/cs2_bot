@@ -19,20 +19,20 @@ class CSCommands(commands.Cog):
             if discord_id in ekipa:
                 nickname = ekipa[discord_id]
             else:
-                await ctx.send("⚠️ Podaj nick gracza (np. `!elo s1mple`) albo połącz najpierw swoje konto wpisując `!polacz [TwójNick]`.")
+                await ctx.send("Podaj nick gracza (np. `!elo s1mple`) albo połącz najpierw swoje konto wpisując `!polacz [TwójNick]`.")
                 return
 
         # Wysyłamy status ładowania
-        msg = await ctx.send(f"🔍 Przeszukuję serwery Faceit dla gracza **{nickname}**...")
+        msg = await ctx.send(f"Przeszukuję serwery Faceit dla gracza **{nickname}**...")
         
         # Pobieramy dane używając naszego pliku z utils
         dane = await get_player_stats(nickname)
         
         if dane is None:
-            await msg.edit(content=f"❌ Nie znalazłem gracza `{nickname}` na Faceit.")
+            await msg.edit(content=f"Nie znalazłem gracza `{nickname}` na Faceit.")
             return
         elif dane == "error":
-            await msg.edit(content="⚠️ Błąd łączenia z Faceit. Spróbuj ponownie później.")
+            await msg.edit(content="Błąd łączenia z Faceit. Spróbuj ponownie później.")
             return
 
         # Budujemy profesjonalną ramkę (Embed)
@@ -50,11 +50,11 @@ class CSCommands(commands.Cog):
 
         embed.description = f"{emotka_levelu} **{dane['elo']} ELO**"
 
-        embed.add_field(name="🏆 Skuteczność Ogólna", 
+        embed.add_field(name="Skuteczność Ogólna", 
                         value=f"Win Rate: **{dane['lifetime_winrate']}%**\n"
                               f"Otwierające zabójstwa (Entry): **{dane['lifetime_entry']}**", inline=True)
         
-        embed.add_field(name="🎯 Precyzja i Playmaking", 
+        embed.add_field(name="Precyzja i Playmaking", 
                         value=f"Headshoty (HS%): **{dane['lifetime_hs']}%**\n"
                               f"Wygrane Clutche (1vX): **{dane['lifetime_clutches']}**", inline=True)
                               
@@ -70,15 +70,15 @@ class CSCommands(commands.Cog):
             if discord_id in ekipa:
                 nickname = ekipa[discord_id]
             else:
-                await ctx.send("⚠️ Podaj nick gracza (np. `!ostatni s1mple`) albo połącz najpierw swoje konto wpisując `!polacz [TwójNick]`.")
+                await ctx.send("Podaj nick gracza (np. `!ostatni s1mple`) albo połącz najpierw swoje konto wpisując `!polacz [TwójNick]`.")
                 return
 
-        msg = await ctx.send(f"📊 Pobieram dane o ostatnim meczu gracza **{nickname}**...")
+        msg = await ctx.send(f"Pobieram dane o ostatnim meczu gracza **{nickname}**...")
         
         # Najpierw musimy pobrać player_id
         gracz = await get_player_stats(nickname)
         if not gracz:
-            await msg.edit(content=f"❌ Nie znalazłem gracza `{nickname}`.")
+            await msg.edit(content=f"Nie znalazłem gracza `{nickname}`.")
             return
 
         # Teraz pobieramy staty meczu
@@ -86,7 +86,7 @@ class CSCommands(commands.Cog):
         mecz = await get_last_match_stats(gracz['player_id'])
         
         if not mecz:
-            await msg.edit(content=f"❌ Nie znalazłem ostatniego meczu CS2 dla gracza `{nickname}`.")
+            await msg.edit(content=f"Nie znalazłem ostatniego meczu CS2 dla gracza `{nickname}`.")
             return
 
         # Kolor w zależności od win/loss
@@ -98,17 +98,17 @@ class CSCommands(commands.Cog):
 
         embed = discord.Embed(
             title=f"Ostatni mecz: {gracz['nick']} — {wynik_tekst}",
-            description=f"🗺️ Mapa: **{mecz['mapa']}** | 🏆 Wynik: **{mecz['wynik']}**\nObecna ranga: {emotka_levelu} **{gracz['elo']} ELO**",
+            description=f"Mapa: **{mecz['mapa']}** | Wynik: **{mecz['wynik']}**\nObecna ranga: {emotka_levelu} **{gracz['elo']} ELO**",
             color=kolor
         )
         
-        embed.add_field(name="🎯 Wyniki Strzeleckie", 
+        embed.add_field(name="Wyniki Strzeleckie", 
                         value=f"K/D/A: **{int(mecz['kille'])}/{int(mecz['dedy'])}/{int(mecz['asysty'])}**\n"
                               f"K/D Ratio: **{mecz['kd']}** (KPR: **{mecz['kr']}**)\n"
                               f"Headshoty: **{mecz['hs_procent']}%**\n"
                               f"ADR: **{mecz['adr']}**", inline=True)
                               
-        embed.add_field(name="🫖 Taktyka & Zagrywki", 
+        embed.add_field(name="Taktyka & Zagrywki", 
                         value=f"Est. HLTV: **{mecz['hltv']}**\n"
                               f"Utility: **{int(mecz['ud'])}** Dmg (Śr. **{mecz['udpr']}**)\n"
                               f"Oślepieni wrogowie: **{int(mecz['ef'])}**\n"
@@ -116,7 +116,7 @@ class CSCommands(commands.Cog):
                               f"Wyg. Clutche (1vX): **{int(mecz['clutch_1v1']+mecz['clutch_1v2'])}**", inline=True)
                               
         embed.add_field(name="🎖️ MVP Spotkania", 
-                        value=f"Gwiazdki: ⭐ **{int(mecz['mvp'])}**\n", inline=False)
+                        value=f"Gwiazdki: **{int(mecz['mvp'])}**\n", inline=False)
         
         embed.set_thumbnail(url=gracz['avatar_url'])
 
@@ -125,7 +125,7 @@ class CSCommands(commands.Cog):
     @commands.command(name="top", aliases=["leaderboard", "ranking"])
     async def tablica_wynikow(self, ctx):
         # Ta komenda musi sprawdzić kilka osób, więc zajmie botowi sekundę lub dwie
-        msg = await ctx.send("🏆 Zbieram dane z serwerów Faceit... (to potrwa chwilę)")
+        msg = await ctx.send("Zbieram dane z serwerów Faceit... (to potrwa chwilę)")
         
         # (NOWY KOD)
         ekipa = wczytaj_ekipe()
@@ -134,7 +134,7 @@ class CSCommands(commands.Cog):
         sezon_aktywny = "nazwa" in sezon
         
         if not ekipa:
-            await msg.edit(content="⚠️ Ekipa jest pusta! Dodaj kogoś używając `!dodaj [nick]`.")
+            await msg.edit(content="Ekipa jest pusta! Dodaj kogoś używając `!dodaj [nick]`.")
             return
 
         wyniki = []
@@ -152,7 +152,7 @@ class CSCommands(commands.Cog):
 
         # Tworzymy ładną ramkę
         embed = discord.Embed(
-            title=f"🏆 Ranking Ekipy - {sezon['nazwa'] if sezon_aktywny else 'FACEIT'}",
+            title=f"Ranking Ekipy - {sezon['nazwa'] if sezon_aktywny else 'FACEIT'}",
             color=config.MAIN_COLOR
         )
 
@@ -182,9 +182,9 @@ class CSCommands(commands.Cog):
                 start_elo = sezon['start_elo'][gracz['player_id']]
                 diff = obecne - start_elo
                 if diff > 0:
-                    opis += f" *(+{diff} 📈)*\n"
+                    opis += f" *(+{diff} )*\n"
                 elif diff < 0:
-                    opis += f" *({diff} 📉)*\n"
+                    opis += f" *({diff} )*\n"
                 else:
                     opis += " *(Bez zmian)*\n"
             else:
@@ -198,7 +198,7 @@ class CSCommands(commands.Cog):
     @commands.command(name="polacz", aliases=["link", "ln"])
     async def polacz_konto(self, ctx, *args):
         if not args:
-            await ctx.send("⚠️ Podaj nick Faceit! Użycie: `!link [nick]` lub `!link @Ktoś [nick]`.")
+            await ctx.send("Podaj nick Faceit! Użycie: `!link [nick]` lub `!link @Ktoś [nick]`.")
             return
 
         discord_id = str(ctx.author.id)
@@ -216,26 +216,26 @@ class CSCommands(commands.Cog):
             faceit_nick = args[0]
             
         if not faceit_nick:
-            await ctx.send("⚠️ Zabrakło nazwy gracza z Faceit!")
+            await ctx.send("Zabrakło nazwy gracza z Faceit!")
             return
 
         ekipa = wczytaj_ekipe()
         
         if discord_id in ekipa and not ctx.message.mentions:
-            await ctx.send(f"⚠️ Masz już połączone konto: **{ekipa[discord_id]}**. Użyj `!un` by je odłączyć.")
+            await ctx.send(f"Masz już połączone konto: **{ekipa[discord_id]}**. Użyj `!un` by je odłączyć.")
             return
 
-        msg = await ctx.send(f"🔍 Łączę profil <@{discord_id}> z kontem Faceit: **{faceit_nick}**...")
+        msg = await ctx.send(f"Łączę profil <@{discord_id}> z kontem Faceit: **{faceit_nick}**...")
 
         from utils.faceit_api import get_player_stats
         test = await get_player_stats(faceit_nick)
         if not test or test == "error":
-            await msg.edit(content=f"❌ Taki gracz nie istnieje na Faceit: **{faceit_nick}**.")
+            await msg.edit(content=f"Taki gracz nie istnieje na Faceit: **{faceit_nick}**.")
             return
 
         ekipa[discord_id] = faceit_nick
         zapisz_ekipe(ekipa)
-        await msg.edit(content=f"✅ <@{discord_id}> pomyślnie powiązano z kontem **{faceit_nick}** na Faceit.")
+        await msg.edit(content=f"<@{discord_id}> pomyślnie powiązano z kontem **{faceit_nick}** na Faceit.")
 
     @commands.command(name="odlacz", aliases=["unlink", "un"])
     async def odlacz_konto(self, ctx, *args):
@@ -248,9 +248,9 @@ class CSCommands(commands.Cog):
         if discord_id in ekipa:
             usuniony = ekipa.pop(discord_id)
             zapisz_ekipe(ekipa)
-            await ctx.send(f"🗑️ Odlączono powiązanie z kontem Faceit: **{usuniony}** z profilu <@{discord_id}>.")
+            await ctx.send(f"Odlączono powiązanie z kontem Faceit: **{usuniony}** z profilu <@{discord_id}>.")
         else:
-            await ctx.send(f"⚠️ Ten profil nie ma obecnie podpiętego konta Faceit.")
+            await ctx.send(f"Ten profil nie ma obecnie podpiętego konta Faceit.")
 
     @commands.command(name="recent", aliases=["ostatnie", "r", "fr"])
     async def komenda_stats(self, ctx, arg1: typing.Optional[str] = None, arg2: typing.Optional[str] = None):
@@ -270,7 +270,7 @@ class CSCommands(commands.Cog):
             if discord_id in ekipa:
                 nickname = ekipa[discord_id]
             else:
-                await ctx.send("⚠️ Podaj nick gracza (np. `!stats 20 s1mple`) albo połącz najpierw swoje konto wpisując `!polacz [TwójNick]`.")
+                await ctx.send("Podaj nick gracza (np. `!stats 20 s1mple`) albo połącz najpierw swoje konto wpisując `!polacz [TwójNick]`.")
                 return
                 
         # Zabezpieczenie przed nadużyciami limitu
@@ -279,18 +279,18 @@ class CSCommands(commands.Cog):
         elif limit < 1:
             limit = 10
             
-        msg = await ctx.send(f"⏳ Pobieram historię **{limit}** ostatnich meczów gracza **{nickname}** na Faceit. Może to potrwać kilka sekund...")
+        msg = await ctx.send(f"Pobieram historię **{limit}** ostatnich meczów gracza **{nickname}** na Faceit. Może to potrwać kilka sekund...")
         
         gracz = await get_player_stats(nickname)
         if not gracz or gracz == "error":
-            await msg.edit(content=f"❌ Nie znalazłem gracza `{nickname}`.")
+            await msg.edit(content=f"Nie znalazłem gracza `{nickname}`.")
             return
 
         from utils.faceit_api import get_multiple_matches_stats
         mecze = await get_multiple_matches_stats(gracz['player_id'], limit)
         
         if not mecze:
-            await msg.edit(content=f"❌ Gracz `{nickname}` nie rozegrał jeszcze żadnego meczu CS2.")
+            await msg.edit(content=f"Gracz `{nickname}` nie rozegrał jeszcze żadnego meczu CS2.")
             return
             
         wygrane = sum(1 for m in mecze if m['win'])
@@ -322,19 +322,19 @@ class CSCommands(commands.Cog):
         
         embed.set_thumbnail(url=gracz['avatar_url'])
         
-        embed.add_field(name="🎯 Strzeleckie Pomiary", 
+        embed.add_field(name="Strzeleckie Pomiary", 
                         value=f"Kille (śr): **{avg_kills:.1f}**\n"
                               f"K/D Ratio: **{avg_kd:.2f}**\n"
                               f"KPR: **{avg_kr:.2f}**\n"
                               f"Headshoty: **{avg_hs:.0f}%**\n"
                               f"ADR (śr): **{avg_adr:.1f}**", inline=True)
 
-        embed.add_field(name="🫖 Taktyka & Zagrywki", 
+        embed.add_field(name="Taktyka & Zagrywki", 
                         value=f"Wszystkie First Kills: **{sum_entry}**\n"
                               f"Wygrane Clutche (1vX): **{sum_clutches}**\n"
                               f"Oślepieni wrogowie (śr): **{avg_ef:.1f}**\n"
                               f"Utility Dmg (śr): **{avg_ud:.1f}**\n"
-                              f"Zdobyte MVPs: ⭐ **{suma_mvp}**", inline=True)
+                              f"Zdobyte MVPs: **{suma_mvp}**", inline=True)
         
         await msg.edit(content=None, embed=embed)
 
@@ -366,15 +366,15 @@ class CSCommands(commands.Cog):
     async def komenda_szybkie_elo(self, ctx, *args):
         faceit_nick = self.parse_nick(ctx, args)
         if not faceit_nick:
-            await ctx.send("⚠️ Podaj nick albo połącz konto (`!link`).")
+            await ctx.send("Podaj nick albo połącz konto (`!link`).")
             return
             
         from utils.faceit_api import get_player_stats
-        msg = await ctx.send(f"🔍 Sprawdzam aktualne punkty: **{faceit_nick}**...")
+        msg = await ctx.send(f"Sprawdzam aktualne punkty: **{faceit_nick}**...")
         dane = await get_player_stats(faceit_nick)
         
         if not dane or dane == "error":
-            await msg.edit(content=f"❌ Nie znalazłem gracza: **{faceit_nick}**.")
+            await msg.edit(content=f"Nie znalazłem gracza: **{faceit_nick}**.")
             return
 
         obecne_elo = int(dane['elo']) if str(dane['elo']).isdigit() else 0
@@ -414,22 +414,22 @@ class CSCommands(commands.Cog):
     async def komenda_historia(self, ctx, *args):
         faceit_nick = self.parse_nick(ctx, args)
         if not faceit_nick:
-            await ctx.send("⚠️ Podaj nick albo połącz konto (`!link`).")
+            await ctx.send("Podaj nick albo połącz konto (`!link`).")
             return
             
         from utils.faceit_api import get_multiple_matches_stats, get_player_stats
-        msg = await ctx.send(f"⏳ Pobieram historię gier: **{faceit_nick}**...")
+        msg = await ctx.send(f"Pobieram historię gier: **{faceit_nick}**...")
         gracz = await get_player_stats(faceit_nick)
         if not gracz or gracz == "error":
-            await msg.edit(content=f"❌ Brak danych o faceit: {faceit_nick}")
+            await msg.edit(content=f"Brak danych o faceit: {faceit_nick}")
             return
             
         mecze = await get_multiple_matches_stats(gracz['player_id'], 5)
         if not mecze:
-            await msg.edit(content=f"❌ {faceit_nick} nie zagrał żadnych meczów.")
+            await msg.edit(content=f"{faceit_nick} nie zagrał żadnych meczów.")
             return
             
-        embed = discord.Embed(title=f"📜 Historia (Ostatnie {len(mecze)} Meczów)", color=config.MAIN_COLOR)
+        embed = discord.Embed(title=f"Historia (Ostatnie {len(mecze)} Meczów)", color=config.MAIN_COLOR)
         for i, mecz in enumerate(mecze, 1):
             wynik_ikonka = "🟢 WYGRANA" if mecz['win'] else "🔴 PRZEGRANA"
             embed.add_field(
@@ -444,19 +444,19 @@ class CSCommands(commands.Cog):
     async def komenda_mapy(self, ctx, *args):
         faceit_nick = self.parse_nick(ctx, args)
         if not faceit_nick:
-            await ctx.send("⚠️ Podaj nick albo połącz konto (`!link`).")
+            await ctx.send("Podaj nick albo połącz konto (`!link`).")
             return
             
         from utils.faceit_api import get_map_segments, get_player_stats
-        msg = await ctx.send(f"🗺️ Sprawdzam statystyki map dla gracza **{faceit_nick}**...")
+        msg = await ctx.send(f"Sprawdzam statystyki map dla gracza **{faceit_nick}**...")
         gracz = await get_player_stats(faceit_nick)
         if not gracz or gracz == "error":
-            await msg.edit(content=f"❌ Brak danych o graczu wpisanym: {faceit_nick}")
+            await msg.edit(content=f"Brak danych o graczu wpisanym: {faceit_nick}")
             return
             
         katalog_map = await get_map_segments(gracz['player_id'])
         if not katalog_map:
-            await msg.edit(content=f"❌ Ten gracz nie grał na mapach 5v5.")
+            await msg.edit(content=f"Ten gracz nie grał na mapach 5v5.")
             return
             
         mapy_5v5 = []
@@ -481,7 +481,7 @@ class CSCommands(commands.Cog):
         bottom_3 = mapy_5v5[-3:]
         bottom_3.reverse()
         
-        embed = discord.Embed(title=f"🗺️ Podsumowanie Map: {gracz['nick']}", color=0x3498db)
+        embed = discord.Embed(title=f"Podsumowanie Map: {gracz['nick']}", color=0x3498db)
         
         top_text = ""
         for m in top_3:
@@ -499,7 +499,7 @@ class CSCommands(commands.Cog):
     @commands.command(name="compare", aliases=["porownaj", "c", "1v1"])
     async def komenda_compare(self, ctx, arg1: str = None, arg2: str = None):
         if not arg1 or not arg2:
-            await ctx.send("❌ Użycie: `!compare [Gracz1] [Gracz2]`")
+            await ctx.send("Użycie: `!compare [Gracz1] [Gracz2]`")
             return
             
         from utils.faceit_api import get_player_stats
@@ -508,15 +508,15 @@ class CSCommands(commands.Cog):
         if not nick1: nick1 = arg1 
         if not nick2: nick2 = arg2 
         
-        msg = await ctx.send(f"⚔️ Otwieranie areny: **{nick1}** vs **{nick2}**...")
+        msg = await ctx.send(f"Otwieranie areny: **{nick1}** vs **{nick2}**...")
         g1 = await get_player_stats(nick1)
         g2 = await get_player_stats(nick2)
         
         if not g1 or g1 == "error" or not g2 or g2 == "error":
-            await msg.edit(content="❌ Błąd. Nie znaleziono profili. Sprawdź pisownię obu awatarów.")
+            await msg.edit(content="Błąd. Nie znaleziono profili. Sprawdź pisownię obu awatarów.")
             return
             
-        embed = discord.Embed(title=f"⚔️ Arena: {g1['nick']} vs {g2['nick']}", color=0x800080)
+        embed = discord.Embed(title=f"Arena: {g1['nick']} vs {g2['nick']}", color=0x800080)
         
         def pick(v1, v2, suffix=""):
             try:
@@ -538,20 +538,20 @@ class CSCommands(commands.Cog):
     @commands.command(name="pomoc", aliases=["komendy", "cmd"])
     async def komenda_pomoc(self, ctx):
         embed = discord.Embed(
-            title="🎮 CS2 Faceit Bot - Instrukcja Obsługi",
+            title="CS2 Faceit Bot - Instrukcja Obsługi",
             description="Bot posiada zaawansowaną integrację pozwalającą na podpinanie kont poprzez **ping gracza** (np. `!stats @Kolega`). Większość komend ma **skróty**. Jeśli nic nie podasz, system wczyta Twoje konto.",
             color=0x2c3e50
         )
         
         embed.add_field(
-            name="🖇️ 1. Powiązanie Konta", 
+            name="1. Powiązanie Konta", 
             value="🔹 `!polacz` (`!link`, `!ln`) [ping/nick]\n*Przyspawa Twoje połączone konto, żebyś już nigdy nie musiał wpisywać długich nicków.*\n"
                   "🔹 `!odlacz` (`!unlink`, `!un`) [ping]\n*Zdejmuje gracza z bazy danych.*", 
             inline=False
         )
         
         embed.add_field(
-            name="📊 2. Analizy Kont i Statystyki", 
+            name="2. Analizy Kont i Statystyki", 
             value="🔹 `!elo` (`!e`) [nick]\n*Pokazuje braki punktowe do odniesienia wyższej rangi.*\n"
                   "🔹 `!stats` (`!s`, `!statystyki`) [nick]\n*Tworzy wielki paszport karty gracza wraz z HS% z całej kariery.*\n"
                   "🔹 `!recent` (`!r`, `!ostatnie`) [10-50] [nick]\n*Rozwija czerwoną linię sprawdzającą formę z np. ostatnich 20 gier.*", 
@@ -559,7 +559,7 @@ class CSCommands(commands.Cog):
         )
         
         embed.add_field(
-            name="⚔️ 3. Mecze na Żywo i Oceny", 
+            name="3. Mecze na Żywo i Oceny", 
             value="🔹 `!last` (`!l`, `!mecz`) [nick]\n*Kompleksowy widok tego jak zagrałeś ostatni mecz: Twoje błyski, utility oraz estymowane Ratingi.*\n"
                   "🔹 `!history` (`!h`, `!historia`) [nick]\n*Widzi Twoją wylistowaną historię ostatnich zagrań.*\n"
                   "🔹 `!maps` (`!m`, `!mapy`) [nick]\n*Prezentuje Twój map-pool oraz 3 mapy do wyrzucenia na Weto.*", 
@@ -567,7 +567,7 @@ class CSCommands(commands.Cog):
         )
         
         embed.add_field(
-            name="🏆 4. Serwer & Rywalizacja", 
+            name="4. Serwer & Rywalizacja", 
             value="🔹 `!compare` (`!c`, `!1v1`) [nick1] [nick2]\n*Starcie legend. Pokazuje przewagi zielonym polem.*\n"
                   "🔹 `!top` (`!ranking`)\n*Leaderboards serwerowy dla całej Ekipy, ukazuje wahania od ostatniego sezonu.*", 
             inline=False
