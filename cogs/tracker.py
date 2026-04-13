@@ -136,16 +136,7 @@ class TrackerCog(commands.Cog):
                     
                     tilt_limit = get_cfg("tilt_limit", 3)
                     
-                    alert_msg = None
-                    if tilt_limit and str(tilt_limit).lower() != "off":
-                        limit_int = int(tilt_limit)
-                        # Sprawdzamy przekroczenia
-                        if nowy_streak <= -limit_int:
-                            alert_msg = f"**{random.choice(get_cfg('lose_streak_texts', config.LOSE_STREAK_TEXTS))}**\n<@{discord_id}> przegrywa **{abs(nowy_streak)}** mecz z rzędu."
-                        elif nowy_streak >= limit_int:
-                            alert_msg = f"**{random.choice(get_cfg('win_streak_texts', config.WIN_STREAK_TEXTS))}**\n<@{discord_id}> wygrywa **{nowy_streak}** mecz z rzędu."
-
-                    # Obliczanie ELO Diff i Level Up
+                    # --- OBLICZENIA ELO I POZIOMÓW ---
                     stare_elo = zapis_bazy.get("elo") if isinstance(zapis_bazy, dict) else None
                     stary_level = zapis_bazy.get("poziom") if isinstance(zapis_bazy, dict) else None
                     obecne_elo = int(gracz.get('elo', 0)) if str(gracz.get('elo', '')).isdigit() else 0
@@ -157,35 +148,84 @@ class TrackerCog(commands.Cog):
                         znak = "+" if roznica > 0 else ""
                         if roznica != 0:
                             elo_tekst += f" *({znak}{roznica} ELO)*"
-                            
-                    # Nadpisywanie alert_msg przy awansie/spadku
-                    if stary_level and obecny_level > 0 and stary_level > 0:
+
+                    # --- LOGIKA GENEROWANIA KOMENTARZA (ALERT MSG) ---
+                    hltv = float(mecz.get('hltv', 0))
+                    ocena_tekst = "Przeciętnie"
+                    heading_roast = None
+                    
+                    # --- LOGIKA WYBORU KOMENTARZA (HEADING ROAST) ---
+                    hltv = float(mecz.get('hltv', 0))
+                    ocena_tekst = "Przeciętnie"
+                    heading_roast = None
+                    
+                    # Ustalanie statusu do Embeda
+                    if hltv >= 1.30: ocena_tekst = "⭐ BESTIA"
+                    elif hltv >= 1.10: ocena_tekst = "✅ Bardzo dobrze"
+                    elif hltv >= 0.90: ocena_tekst = "😐 Solidnie"
+                    elif hltv >= 0.70: ocena_tekst = "📉 Słabo"
+                    else: ocena_tekst = "💀 BOT"
+
+                    # 1. Bezwzględny priorytet: Awans / Spadek
+                    if stary_level and obecny_level != stary_level and stary_level > 0:
                         if obecny_level > stary_level:
-                            alert_msg = f"🎉 **{random.choice(get_cfg('awans_texts', config.AWANS_TEXTS))}**\n<@{discord_id}> właśnie wbił **{obecny_level} LEVEL** na Faceit!"
-                        elif obecny_level < stary_level:
-                            alert_msg = f"💀 **{random.choice(get_cfg('spadek_texts', config.SPADEK_TEXTS))}**\n<@{discord_id}> spadł na **{obecny_level} LEVEL** na Faceit."
+                            heading_roast = random.choice(get_cfg('awans_texts', config.AWANS_TEXTS))
+                        else:
+                            heading_roast = random.choice(get_cfg('spadek_texts', config.SPADEK_TEXTS))
+                    else:
+                        # 2. Losowanie połączone: HLTV + Streaks
+                        pula_tekstow = []
+                        
+                        # Dodajemy teksty HLTV (tylko Bestia/Bot)
+                        if hltv >= 1.30:
+                            pula_tekstow.extend(get_cfg('hltv_beast_texts', config.HLTV_BEAST_TEXTS))
+                        elif hltv < 0.70:
+                            pula_tekstow.extend(get_cfg('hltv_bot_texts', config.HLTV_BOT_TEXTS))
+                            
+                        # Dodajemy teksty serii (Streaki)
+                        if tilt_limit and str(tilt_limit).lower() != "off":
+                            limit_int = int(tilt_limit)
+                            if nowy_streak <= -limit_int:
+                                pula_tekstow.extend(get_cfg('lose_streak_texts', config.LOSE_STREAK_TEXTS))
+                            elif nowy_streak >= limit_int:
+                                pula_tekstow.extend(get_cfg('win_streak_texts', config.WIN_STREAK_TEXTS))
+                                
+                        if pula_tekstow:
+                            heading_roast = random.choice(pula_tekstow)
+
+                    # 3. Budowanie szczegółów pingu (Body)
+                    details = []
+                    
+                    # Zmiana poziomu
+                    if stary_level and obecny_level != stary_level and stary_level > 0:
+                        type_str = "wbija" if obecny_level > stary_level else "spada na"
+                        details.append(f"{type_str} **{obecny_level} LEVEL**")
+
+                    # Streak
+                    if tilt_limit and str(tilt_limit).lower() != "off":
+                        limit_int = int(tilt_limit)
+                        if abs(nowy_streak) >= limit_int:
+                            type_s = "wygrywa" if win else "przegrywa"
+                            details.append(f"{type_s} **{abs(nowy_streak)}** mecz z rzędu")
+
+                    # Finalny montaż - Tylko jeśli mamy jakiś powód do pingu (nagłówek)
+                    alert_msg = None
+                    if heading_roast:
+                        if not details: # Jeśli mamy roast za HLTV ale nic innego
+                            details.append(f"kończy z HLTV **{hltv:.2f}**")
+                        alert_msg = f"**{heading_roast}**\n<@{discord_id}> {' i '.join(details)}!"
 
                     kolor = 0x00FF00 if win else 0xFF0000
                     wynik_tekst = "WYGRANA" if win else "PRZEGRANA"
 
-                    poziom = str(gracz.get('poziom', '0'))
+                    poziom_str = str(gracz.get('poziom', '0'))
                     emotki = get_cfg("level_emojis", config.LEVEL_EMOJIS)
-                    emotka_levelu = emotki.get(poziom, get_cfg("level_default", config.LEVEL_DEFAULT))
-
-                    hltv = float(mecz.get('hltv', 0))
-                    if hltv >= 1.3: 
-                        ocena_tekst = random.choice(get_cfg('hltv_beast_texts', config.HLTV_BEAST_TEXTS))
-                    elif hltv >= 1.05: 
-                        ocena_tekst = "Solidna Gra"
-                    elif hltv >= 0.85: 
-                        ocena_tekst = "Przeciętnie"
-                    else: 
-                        ocena_tekst = random.choice(get_cfg('hltv_bot_texts', config.HLTV_BOT_TEXTS))
+                    emotka_levelu = emotki.get(poziom_str, get_cfg("level_default", config.LEVEL_DEFAULT))
 
                     embed = discord.Embed(
                         title=f"{wynik_tekst}: Mecz na {mecz['mapa']} ({mecz['wynik']})",
                         description=f"{emotka_levelu} **{gracz['nick']}** | **{ocena_tekst}** (HLTV: **{hltv:.2f}**)\nBieżące punkty: {elo_tekst}",
-                        color=get_cfg("main_color", 0x2b2d31)
+                        color=kolor
                     )
                     
                     embed.add_field(
@@ -211,9 +251,15 @@ class TrackerCog(commands.Cog):
                     embed.set_thumbnail(url=gracz['avatar_url'])
                     
                     try:
-                        await kanal.send(content=alert_msg, embed=embed)
+                        # Wysyłamy kartę zawsze
+                        await kanal.send(embed=embed)
+                        # Pingujemy tylko jeśli mamy coś ważnego do powiedzenia (ekstremum, awans lub streak)
+                        if alert_msg:
+                            await kanal.send(content=alert_msg)
                     except discord.Forbidden:
                         pass # Brak uprawnień do postowania na danym kanale
+                    except Exception as e:
+                        print(f"⚠️ Błąd przy wysyłaniu powiadomienia trackera: {e}")
 
                 # Zapisujemy mu ten mecz jako SZERSZY SŁOWNIK
                 mecze_baza[id_gracza] = {
