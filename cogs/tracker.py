@@ -12,10 +12,12 @@ from utils.faceit_api import get_player_stats, get_last_match_stats
 class TrackerCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.check_matches.start()  # Uruchamia pętlę przy załadowaniu pliku
+        self.check_matches.start()  # Monitorowanie meczów
+        self.update_team_elo_channel.start()  # Średnie ELO ekipy
 
     def cog_unload(self):
-        self.check_matches.cancel()  # Zatrzymuje pętlę, gdy bot gaśnie
+        self.check_matches.cancel()
+        self.update_team_elo_channel.cancel()
 
 
 
@@ -82,6 +84,47 @@ class TrackerCog(commands.Cog):
         ustawienia[klucz] = nowa_wartosc
         zapisz_ustawienia(ustawienia)
         await ctx.send(f"✅ Zmieniono `{klucz}`: `{stara}` ➔ `{nowa_wartosc}`")
+
+    @commands.command(name="elo_setup")
+    @commands.has_permissions(administrator=True)
+    async def elo_setup(self, ctx):
+        """Automatycznie tworzy kanał statystyk ze średnim ELO ekipy."""
+        ustawienia = wczytaj_ustawienia()
+        
+        # 1. Obliczamy startowe ELO
+        ekipa = wczytaj_ekipe()
+        total_elo = 0
+        count = 0
+        for nick in ekipa.values():
+            gracz = await get_player_stats(nick)
+            if gracz and gracz != "error" and gracz.get("elo"):
+                total_elo += int(gracz["elo"])
+                count += 1
+        
+        avg = round(total_elo / count, 1) if count > 0 else 0
+        
+        # 2. Uprawnienia: Widoczny dla wszystkich, brak możliwości dołączenia
+        overwrites = {
+            ctx.guild.default_role: discord.PermissionOverwrite(view_channel=True, connect=False),
+            ctx.guild.me: discord.PermissionOverwrite(view_channel=True, connect=True, manage_channels=True)
+        }
+        
+        # 3. Tworzenie kanału
+        channel_name = f"Średnie ELO: {avg}"
+        try:
+            new_channel = await ctx.guild.create_voice_channel(
+                name=channel_name,
+                overwrites=overwrites,
+                reason="Setup kanału statystyk ELO"
+            )
+            
+            ustawienia["kanal_elo"] = new_channel.id
+            ustawienia["ostatnie_srednie_elo"] = avg
+            zapisz_ustawienia(ustawienia)
+            
+            await ctx.send(f"✅ Pomyślnie stworzono kanał statystyk: {new_channel.mention}\nBędzie on aktualizowany automatycznie co godzinę.")
+        except Exception as e:
+            await ctx.send(f"❌ Błąd przy tworzeniu kanału: {e}")
 
     @tasks.loop(minutes=2.0)
     async def check_matches(self):
@@ -278,6 +321,65 @@ class TrackerCog(commands.Cog):
                 
         if zmieniono_tilt:
             zapisz_tilt(tilt_baza)
+
+    @tasks.loop(hours=1.0)
+    async def update_team_elo_channel(self):
+        """Raz na godzinę aktualizuje nazwę kanału ze średnim ELO ekipy."""
+        await self.bot.wait_until_ready()
+        
+        ustawienia = wczytaj_ustawienia()
+        kanal_id = ustawienia.get("kanal_elo")
+        if not kanal_id:
+            return
+            
+        kanal = self.bot.get_channel(int(kanal_id))
+        if not kanal:
+            # Może to kanał głosowy, który wymaga fetchowania?
+            try:
+                kanal = await self.bot.fetch_channel(int(kanal_id))
+            except:
+                return
+
+        if not kanal:
+            return
+            
+        ekipa = wczytaj_ekipe()
+        total_elo = 0
+        count = 0
+        
+        # Pobieramy świeże dane o każdym z listy ekipy
+        for nick in ekipa.values():
+            gracz = await get_player_stats(nick)
+            if gracz and gracz != "error" and gracz.get("elo"):
+                try:
+                    total_elo += int(gracz["elo"])
+                    count += 1
+                except:
+                    continue
+        
+        if count == 0:
+            return
+            
+        current_avg = round(total_elo / count, 1)
+        last_avg = ustawienia.get("ostatnie_srednie_elo", current_avg)
+        
+        # Obliczanie różnicy
+        diff = round(current_avg - last_avg, 1)
+        znak = "+" if diff > 0 else ""
+        diff_text = f" ({znak}{diff})" if diff != 0 else ""
+        
+        new_name = f"Średnie ELO: {current_avg}{diff_text}"
+        
+        # Discord ma limit zmian nazw kanałów (ok. 2 na 10 min), raz na godzinę jest super bezpieczne
+        try:
+            # Porównujemy z aktualną nazwą, żeby nie marnować API jeśli nic się nie zmieniło
+            if kanal.name != new_name:
+                await kanal.edit(name=new_name)
+                # Zapisujemy nową średnią jako punkt odniesienia dla następnej godziny
+                ustawienia["ostatnie_srednie_elo"] = current_avg
+                zapisz_ustawienia(ustawienia)
+        except Exception as e:
+            print(f"⚠️ Błąd aktualizacji nazwy kanału ELO: {e}")
 
 async def setup(bot):
     await bot.add_cog(TrackerCog(bot))
