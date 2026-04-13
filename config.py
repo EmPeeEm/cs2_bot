@@ -1,6 +1,6 @@
 # config.py
 
-PREFIX = "?"
+PREFIX = "!"
 MAIN_COLOR = 0xFF5500 
 ERROR_CHANNEL_ID = None
 
