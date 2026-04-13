@@ -26,6 +26,55 @@ class TrackerCog(commands.Cog):
         zapisz_ustawienia(ustawienia)
         await ctx.send("Ten kanał został pomyślnie ustawiony jako domyślny dla powiadomień Faceit! Gdy ktokolwiek z ekipy zagra nowy mecz, napiszę tutaj.")
 
+    @commands.command(name="config", aliases=["ustawienia", "settings", "cfg"])
+    @commands.has_permissions(administrator=True)
+    async def zarzadzaj_configiem(self, ctx, klucz: str = None, wartosc: str = None):
+        """Podgląd i zmiana ustawień bota zapisanych w JSON."""
+        ustawienia = wczytaj_ustawienia()
+        
+        # Jeśli brak argumentów - pokazujemy obecny stan
+        if not klucz:
+            embed = discord.Embed(
+                title="⚙️ Konfiguracja Systemu",
+                description="Oto aktualne parametry operacyjne bota. Możesz je zmienić wpisując: `?config [klucz] [wartość]`",
+                color=0x2b2d31
+            )
+            
+            for k, v in ustawienia.items():
+                nazwa = k.replace("_", " ").title()
+                val = f"`{v}`" if v else "*Nieustawione*"
+                if k == "kanal_eventow" and v:
+                    val = f"<#{v}> (`{v}`)"
+                
+                embed.add_field(name=nazwa, value=val, inline=False)
+            
+            # Jeśli prefixu brakuje w JSON, dopiszmy informację o domyślnym
+            if "prefix" not in ustawienia:
+                embed.add_field(name="Domyślny Prefix", value=f"`{config.PREFIX}` (Użyj `?config prefix [znak]`, aby zmienić)", inline=False)
+            
+            embed.set_footer(text="Zmiany są zapisywane natychmiastowo w data/ustawienia.json")
+            await ctx.send(embed=embed)
+            return
+
+        # Jeśli podano klucz, ale nie podano wartości - błąd
+        if not wartosc:
+            await ctx.send(f"❌ Musisz podać wartość dla klucza `{klucz}`! Przykład: `?config tilt_limit 5`")
+            return
+
+        # Próba zmiany
+        stara_wartosc = ustawienia.get(klucz, "Brak")
+        
+        # Konwersja typów (prymitywna detekcja liczb)
+        if wartosc.isdigit():
+            nowa_wartosc = int(wartosc)
+        else:
+            nowa_wartosc = wartosc
+
+        ustawienia[klucz] = nowa_wartosc
+        zapisz_ustawienia(ustawienia)
+        
+        await ctx.send(f"✅ Zmieniono ustawienie: **{klucz}**\nPoprzednio: `{stara_wartosc}` ➔ Teraz: `{nowa_wartosc}`")
+
     @tasks.loop(minutes=0.1)
     async def check_matches(self):
         # Czekamy, aż bot zsynchronizuje się z siecią Discord
