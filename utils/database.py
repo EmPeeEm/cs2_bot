@@ -99,3 +99,20 @@ def wczytaj_archiwum_sezonow():
 def zapisz_archiwum_sezonow(dane):
     with open(PLIK_ARCHIWUM, "w", encoding="utf-8") as f:
         json.dump(dane, f, indent=4)
+
+def get_cfg(klucz, domyslna=None):
+    """
+    Pobiera wartość z ustawienia.json, a jeśli nie istnieje, 
+    próbuje pobrać ją z config.py lub zwraca domyslna.
+    """
+    from utils.database import wczytaj_ustawienia
+    ustawienia = wczytaj_ustawienia()
+    if klucz in ustawienia:
+        return ustawienia[klucz]
+    
+    # Próba pobrania z config.py (import wewnątrz by uniknąć cykli)
+    try:
+        import config
+        return getattr(config, klucz.upper(), domyslna)
+    except (ImportError, AttributeError):
+        return domyslna

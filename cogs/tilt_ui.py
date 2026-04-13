@@ -1,6 +1,6 @@
 import discord
 from discord.ext import commands
-from utils.database import wczytaj_ustawienia, zapisz_ustawienia
+from utils.database import wczytaj_ustawienia, zapisz_ustawienia, get_cfg
 import config
 
 class TiltSelect(discord.ui.Select):
@@ -49,7 +49,7 @@ class TiltUICog(commands.Cog):
         embed = discord.Embed(
             title="⚙️ Tilt-Meter Konfiguracja", 
             description="Zdecyduj po jakiej liczbie rozegranych meczy (np. po ilu porażkach lub wygranych z rzędu) bot ma powiadamiać Ekipę na kanale eventowym.",
-            color=config.MAIN_COLOR
+            color=get_cfg("main_color", 0x2b2d31)
         )
         aw = await ctx.send(embed=embed, view=TiltView())
 

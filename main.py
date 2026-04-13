@@ -4,9 +4,7 @@ import discord
 from discord.ext import commands
 import os
 from dotenv import load_dotenv
-import config
-
-from utils.database import wczytaj_ustawienia
+from utils.database import get_cfg
 
 # Załaduj środowisko
 load_dotenv()
@@ -14,8 +12,7 @@ TOKEN = os.getenv('DISCORD_TOKEN')
 
 # Funkcja pobierająca prefix z bazy danych
 def get_prefix(bot, message):
-    ustawienia = wczytaj_ustawienia()
-    return ustawienia.get("prefix", config.PREFIX)
+    return get_cfg("prefix", "!")
 
 # Skonfiguruj intencje
 intents = discord.Intents.default()
@@ -23,7 +20,7 @@ intents.message_content = True
 
 class CSBot(commands.Bot):
     def __init__(self):
-        super().__init__(command_prefix=get_prefix, intents=intents)
+        super().__init__(command_prefix=get_prefix, intents=intents, help_command=None)
 
     # Handler ładujący wszystkie pliki z folderu cogs/
     async def setup_hook(self):
