@@ -12,6 +12,7 @@ PLIK_USTAWIEN = "data/ustawienia.json"
 PLIK_MECZE = "data/mecze.json"
 PLIK_SEZONU = "data/sezon.json"
 PLIK_TILTU = "data/tilt.json"
+PLIK_ARCHIWUM = "data/archiwum_sezonow.json"
 
 def wczytaj_ekipe():
     """Zwraca słownik powiązań np. {"12345678": "s1mple"}. Zwraca puste {} jeśli jest to stary format."""
@@ -84,4 +85,17 @@ def wczytaj_tilt():
 
 def zapisz_tilt(dane):
     with open(PLIK_TILTU, "w", encoding="utf-8") as f:
+        json.dump(dane, f, indent=4)
+
+def wczytaj_archiwum_sezonow():
+    if not os.path.exists(PLIK_ARCHIWUM):
+        return []
+    with open(PLIK_ARCHIWUM, "r", encoding="utf-8") as f:
+        try:
+            return json.load(f)
+        except Exception:
+            return []
+
+def zapisz_archiwum_sezonow(dane):
+    with open(PLIK_ARCHIWUM, "w", encoding="utf-8") as f:
         json.dump(dane, f, indent=4)

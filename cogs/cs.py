@@ -5,7 +5,7 @@ from discord.ext import commands
 import typing
 from utils.faceit_api import get_player_stats
 import config
-from utils.database import wczytaj_ekipe, zapisz_ekipe, wczytaj_sezon
+from utils.database import wczytaj_ekipe, zapisz_ekipe, wczytaj_sezon, zapisz_sezon
 
 class CSCommands(commands.Cog):
     def __init__(self, bot):
@@ -48,15 +48,21 @@ class CSCommands(commands.Cog):
         # Szukamy emotki w configu.
         emotka_levelu = config.LEVEL_EMOJIS.get(poziom, config.LEVEL_DEFAULT)
 
-        embed.description = f"{emotka_levelu} **{dane['elo']} ELO**"
+        embed.description = f"{emotka_levelu} **{dane['elo']} ELO**  |  Rozegrane Mecze: **{dane['lifetime_matches']}**"
+        
+        embed.add_field(name="Ratingi i Pomiary", 
+                        value=f"K/D Ratio: **{dane['lifetime_kd']}**\n"
+                              f"ADR (Śr. Obr.): **{dane['lifetime_adr']}**\n"
+                              f"Headshoty (HS%): **{dane['lifetime_hs']}%**", inline=True)
 
         embed.add_field(name="Skuteczność Ogólna", 
                         value=f"Win Rate: **{dane['lifetime_winrate']}%**\n"
-                              f"Otwierające zabójstwa (Entry): **{dane['lifetime_entry']}**", inline=True)
-        
-        embed.add_field(name="Precyzja i Playmaking", 
-                        value=f"Headshoty (HS%): **{dane['lifetime_hs']}%**\n"
-                              f"Wygrane Clutche (1vX): **{dane['lifetime_clutches']}**", inline=True)
+                              f"Wygrane Mecze: **{dane['lifetime_wins']}**\n"
+                              f"Obecny Winstreak: **{dane['lifetime_winstreak']}**", inline=True)
+                              
+        embed.add_field(name="Zgranie i Playmaking", 
+                        value=f"Wygrane Clutche (1vX): **{dane['lifetime_clutches']}**\n"
+                              f"Otwierające zab. (Entry): **{dane['lifetime_entry']}**", inline=False)
                               
 
         # Edytujemy wiadomość ładowania, podmieniając ją na ładnego embeda
@@ -195,6 +201,60 @@ class CSCommands(commands.Cog):
         # Edytujemy naszą wiadomość o ładowaniu na gotową tablicę
         await msg.edit(content=None, embed=embed)
 
+    @commands.command(name="streaks", aliases=["passa", "st"])
+    async def zestawienie_passy(self, ctx):
+        """Wyświetla aktualne serie zwycięstw/porażek dla całej ekipy."""
+        from utils.database import wczytaj_tilt
+        msg = await ctx.send("Sprawdzam, kto dzisiaj carruje, a kto sabotuje... 🔍")
+        
+        ekipa = wczytaj_ekipe()
+        tilt_baza = wczytaj_tilt()
+        
+        if not ekipa:
+            await msg.edit(content="Ekipa jest pusta!")
+            return
+
+        wyniki = []
+        # Pobieramy ID graczy, żeby dopasować ich do tilt.json
+        for discord_id, nick in ekipa.items():
+            dane = await get_player_stats(nick)
+            if dane and dane != "error":
+                pid = dane['player_id']
+                streak = tilt_baza.get(pid, 0)
+                wyniki.append({
+                    "nick": nick,
+                    "discord_id": discord_id,
+                    "streak": streak
+                })
+
+        # Sortujemy: najpierw największe winstreaki, na dole największe loostreaki
+        wyniki.sort(key=lambda x: x["streak"], reverse=True)
+
+        embed = discord.Embed(
+            title="🔥 Termometr Ekipy — Serie Gier",
+            description="Zestawienie aktualnych serii zwycięstw i porażek w bieżącej sesji.",
+            color=0x2b2d31
+        )
+
+        opis = ""
+        for r in wyniki:
+            if r['streak'] > 0:
+                ikonka = "🔥" * min(r['streak'], 3) # Max 3 ogniki
+                stan = f"**{r['streak']} Win(s)**"
+            elif r['streak'] < 0:
+                ikonka = "❄️" * min(abs(r['streak']), 3)
+                stan = f"**{abs(r['streak'])} Loss(es)**"
+            else:
+                ikonka = "⚪"
+                stan = "Brak serii"
+            
+            opis += f"{ikonka} <@{r['discord_id']}> — {stan}\n"
+
+        embed.description = opis if opis else "Wszyscy na czysto!"
+        embed.set_footer(text="Passa liczona od ostatniego wykrycia przez bota.")
+        
+        await msg.edit(content=None, embed=embed)
+
     @commands.command(name="polacz", aliases=["link", "ln"])
     async def polacz_konto(self, ctx, *args):
         if not args:
@@ -235,6 +295,18 @@ class CSCommands(commands.Cog):
 
         ekipa[discord_id] = faceit_nick
         zapisz_ekipe(ekipa)
+        
+        # WPISANIE DO TRWAJĄCEGO SEZONU (Zabezpiecza przed omijaniem late-joinerów)
+        sezon = wczytaj_sezon()
+        if "nazwa" in sezon and str(test.get('elo', 'Brak')).isdigit():
+            player_id = str(test['player_id'])
+            if "start_elo" not in sezon:
+                sezon["start_elo"] = {}
+                
+            if player_id not in sezon["start_elo"]:
+                sezon["start_elo"][player_id] = int(test['elo'])
+                zapisz_sezon(sezon)
+                
         await msg.edit(content=f"<@{discord_id}> pomyślnie powiązano z kontem **{faceit_nick}** na Faceit.")
 
     @commands.command(name="odlacz", aliases=["unlink", "un"])
@@ -429,13 +501,22 @@ class CSCommands(commands.Cog):
             await msg.edit(content=f"{faceit_nick} nie zagrał żadnych meczów.")
             return
             
-        embed = discord.Embed(title=f"Historia (Ostatnie {len(mecze)} Meczów)", color=config.MAIN_COLOR)
+        embed = discord.Embed(
+            title=f"Dziennik Spotkań", 
+            description=f"Profil operacyjny: **{gracz['nick']}** | Raport z {len(mecze)} ostatnich gier", 
+            color=0x2b2d31
+        )
         for i, mecz in enumerate(mecze, 1):
-            wynik_ikonka = "🟢 WYGRANA" if mecz['win'] else "🔴 PRZEGRANA"
+            rezultat = "🟩 Wygrana" if mecz['win'] else "🟥 Porażka"
+            
+            opis = (f"**W/L:** {rezultat} ({mecz['score']})\n"
+                    f"**Rating HLTV:** {mecz['hltv']:.2f}\n"
+                    f"**K/D Ratio:** {mecz['kd']} | **ADR:** {mecz['adr']}")
+            
             embed.add_field(
-                name=f"{i}. {mecz['score']} ({wynik_ikonka})", 
-                value=f"K/D: **{mecz['kd']}** | Kille: **{int(mecz['kille'])}** | ADR: **{mecz['adr']}**",
-                inline=False
+                name=f"#{i} — {mecz['mapa']}", 
+                value=opis,
+                inline=True
             )
         embed.set_thumbnail(url=gracz['avatar_url'])
         await msg.edit(content=None, embed=embed)
@@ -481,17 +562,27 @@ class CSCommands(commands.Cog):
         bottom_3 = mapy_5v5[-3:]
         bottom_3.reverse()
         
-        embed = discord.Embed(title=f"Podsumowanie Map: {gracz['nick']}", color=0x3498db)
+        embed = discord.Embed(
+            title="Atlas Terenów (Mapy 5v5)",
+            description=f"Wizualizacja skuteczności map dla gracza: **{gracz['nick']}**",
+            color=0x2b2d31
+        )
         
-        top_text = ""
-        for m in top_3:
-            top_text += f"\u2022 **{m['nazwa']}** — W/R: **{m['wr']}%** (K/D: {m['kd']} / {m['mecze']} Gier)\n"
-        embed.add_field(name="🟢 Top 3 Mapy (Twoja domena)", value=top_text if top_text else "Brak danych.", inline=True)
+        for i, m in enumerate(top_3):
+            embed.add_field(
+                name=f"🟢 {m['nazwa']} (Domena)",
+                value=f"W/R: **{m['wr']}%** z {m['mecze']} Gier\nK/D: **{m['kd']}**",
+                inline=True
+            )
+            
+        embed.add_field(name="\u200b", value="\u200b", inline=False) # Przerwa
         
-        bottom_text = ""
-        for m in reversed(bottom_3):
-            bottom_text += f"\u2022 **{m['nazwa']}** — W/R: **{m['wr']}%** (K/D: {m['kd']} / {m['mecze']} Gier)\n"
-        embed.add_field(name="🔴 Bottom 3 (Sugerowane Weto)", value=bottom_text if bottom_text else "Brak danych.", inline=True)
+        for i, m in enumerate(reversed(bottom_3)):
+            embed.add_field(
+                name=f"🔴 {m['nazwa']} (Weto)",
+                value=f"W/R: **{m['wr']}%** z {m['mecze']} Gier\nK/D: **{m['kd']}**",
+                inline=True
+            )
         
         embed.set_thumbnail(url=gracz['avatar_url'])
         await msg.edit(content=None, embed=embed)
@@ -529,6 +620,8 @@ class CSCommands(commands.Cog):
                 
         embed.add_field(name="Punkty ELO", value=pick(g1['elo'], g2['elo']), inline=False)
         embed.add_field(name="Win Rate kariery", value=pick(g1['lifetime_winrate'], g2['lifetime_winrate'], "%"), inline=False)
+        embed.add_field(name="Średnie Obrażenia (ADR)", value=pick(g1['lifetime_adr'], g2['lifetime_adr']), inline=False)
+        embed.add_field(name="K/D Ratio", value=pick(g1['lifetime_kd'], g2['lifetime_kd']), inline=False)
         embed.add_field(name="Headshoty %", value=pick(g1['lifetime_hs'], g2['lifetime_hs'], "%"), inline=False)
         embed.add_field(name="Wygrane Clutche (1vX)", value=pick(g1['lifetime_clutches'], g2['lifetime_clutches']), inline=False)
         

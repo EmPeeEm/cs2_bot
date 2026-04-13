@@ -40,7 +40,12 @@ async def get_player_stats(nickname: str):
         "lifetime_clutches": int(lifetime.get("Total 1v1 Wins", 0)) + int(lifetime.get("Total 1v2 Wins", 0)),
         "lifetime_entry": lifetime.get("Total Entry Wins", "0"),
         "lifetime_hs": lifetime.get("Average Headshots %", "0"),
-        "lifetime_winrate": lifetime.get("Win Rate %", "0")
+        "lifetime_winrate": lifetime.get("Win Rate %", "0"),
+        "lifetime_kd": lifetime.get("Average K/D Ratio", "0"),
+        "lifetime_adr": lifetime.get("ADR", "0"),
+        "lifetime_matches": lifetime.get("Matches", "0"),
+        "lifetime_wins": lifetime.get("Wins", "0"),
+        "lifetime_winstreak": lifetime.get("Current Win Streak", "0")
     }
 
 async def get_last_match_stats(player_id: str):
@@ -133,6 +138,7 @@ async def get_multiple_matches_stats(player_id: str, limit: int = 30):
                             "mvp": float(ps.get("MVPs", 0)),
                             "win": ps.get("Result") == "1",
                             "score": runda.get("round_stats", {}).get("Score", "Brak"),
+                            "mapa": runda.get("round_stats", {}).get("Map", "Nieznana"),
                             "adr": float(ps.get("ADR", 0)),
                             "ud": float(ps.get("Utility Damage", 0)),
                             "udpr": float(ps.get("Utility Damage per Round in a Match", 0)),

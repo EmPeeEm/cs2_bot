@@ -1,6 +1,7 @@
 import discord
 from discord.ext import commands, tasks
 import config
+import random
 from utils.database import (
     wczytaj_ekipe, wczytaj_ustawienia, zapisz_ustawienia,
     wczytaj_ostatnie_mecze, zapisz_ostatnie_mecze,
@@ -25,7 +26,7 @@ class TrackerCog(commands.Cog):
         zapisz_ustawienia(ustawienia)
         await ctx.send("Ten kanał został pomyślnie ustawiony jako domyślny dla powiadomień Faceit! Gdy ktokolwiek z ekipy zagra nowy mecz, napiszę tutaj.")
 
-    @tasks.loop(minutes=5.0)
+    @tasks.loop(minutes=0.1)
     async def check_matches(self):
         # Czekamy, aż bot zsynchronizuje się z siecią Discord
         await self.bot.wait_until_ready()
@@ -61,8 +62,11 @@ class TrackerCog(commands.Cog):
             id_gracza = gracz["player_id"]
             aktualny_match_id = mecz["match_id"]
             
+            zapis_bazy = mecze_baza.get(id_gracza)
+            zapisany_match_id = zapis_bazy if isinstance(zapis_bazy, str) else zapis_bazy.get("match_id") if isinstance(zapis_bazy, dict) else None
+            
             # Główna weryfikacja
-            if mecze_baza.get(id_gracza) != aktualny_match_id:
+            if zapisany_match_id != aktualny_match_id:
                 # Blokujemy spam starymi meczami przy starcie programu.
                 # Pisze on powiadomienia TYLKO jeśli baza już go w ogóle zna.
                 if id_gracza in mecze_baza:
@@ -73,40 +77,56 @@ class TrackerCog(commands.Cog):
                     tilt_baza[id_gracza] = nowy_streak
                     zmieniono_tilt = True
                     
-                    tilt_limit = ustawienia.get("tilt_limit", 3) # Domyślnie 3
+                    tilt_limit = ustawienia.get("tilt_limit", 3)
                     
                     alert_msg = None
                     if tilt_limit and str(tilt_limit).lower() != "off":
                         limit_int = int(tilt_limit)
                         # Sprawdzamy przekroczenia
                         if nowy_streak <= -limit_int:
-                            alert_msg = f"**UWAGA!** <@{discord_id}> przegrywa **{abs(nowy_streak)}** mecz z rzędu. Tryb węgla aktywowany."
+                            alert_msg = f"**{random.choice(config.LOSE_STREAK_TEXTS)}**\n<@{discord_id}> przegrywa **{abs(nowy_streak)}** mecz z rzędu."
                         elif nowy_streak >= limit_int:
-                            alert_msg = f"**ON FIRE!** <@{discord_id}> wygrywa **{nowy_streak}** mecz z rzędu. Czysta dominacja!"
+                            alert_msg = f"**{random.choice(config.WIN_STREAK_TEXTS)}**\n<@{discord_id}> wygrywa **{nowy_streak}** mecz z rzędu."
+
+                    # Obliczanie ELO Diff i Level Up
+                    stare_elo = zapis_bazy.get("elo") if isinstance(zapis_bazy, dict) else None
+                    stary_level = zapis_bazy.get("poziom") if isinstance(zapis_bazy, dict) else None
+                    obecne_elo = int(gracz.get('elo', 0)) if str(gracz.get('elo', '')).isdigit() else 0
+                    obecny_level = int(gracz.get('poziom', 0)) if str(gracz.get('poziom', '')).isdigit() else 0
+
+                    elo_tekst = f"**{obecne_elo}**"
+                    if stare_elo and obecne_elo > 0 and stare_elo > 0:
+                        roznica = obecne_elo - stare_elo
+                        znak = "+" if roznica > 0 else ""
+                        if roznica != 0:
+                            elo_tekst += f" *({znak}{roznica} ELO)*"
+                            
+                    # Nadpisywanie alert_msg przy awansie/spadku
+                    if stary_level and obecny_level > 0 and stary_level > 0:
+                        if obecny_level > stary_level:
+                            alert_msg = f"🎉 **{random.choice(config.AWANS_TEXTS)}**\n<@{discord_id}> właśnie wbił **{obecny_level} LEVEL** na Faceit!"
+                        elif obecny_level < stary_level:
+                            alert_msg = f"💀 **{random.choice(config.SPADEK_TEXTS)}**\n<@{discord_id}> spadł na **{obecny_level} LEVEL** na Faceit."
 
                     kolor = 0x00FF00 if win else 0xFF0000
                     wynik_tekst = "WYGRANA" if win else "PRZEGRANA"
 
-                    import config
                     poziom = str(gracz.get('poziom', '0'))
                     emotka_levelu = getattr(config, 'LEVEL_EMOJIS', {}).get(poziom, getattr(config, 'LEVEL_DEFAULT', ''))
 
-                    # Dynamiczna karta meczowa w oparciu o ocenę
                     hltv = float(mecz.get('hltv', 0))
-                    if hltv >= 1.5:
-                        ocena_tekst = "Totalna Dominacja"
-                    elif hltv >= 1.3:
-                        ocena_tekst = "Rewelacyjny Występ"
-                    elif hltv >= 1.05:
+                    if hltv >= 1.3: 
+                        ocena_tekst = random.choice(config.HLTV_BEAST_TEXTS)
+                    elif hltv >= 1.05: 
                         ocena_tekst = "Solidna Gra"
-                    elif hltv >= 0.85:
+                    elif hltv >= 0.85: 
                         ocena_tekst = "Przeciętnie"
-                    else:
-                        ocena_tekst = "Słaby Występ"
+                    else: 
+                        ocena_tekst = random.choice(config.HLTV_BOT_TEXTS)
 
                     embed = discord.Embed(
                         title=f"{wynik_tekst}: Mecz na {mecz['mapa']} ({mecz['wynik']})",
-                        description=f"{emotka_levelu} **{gracz['nick']}** | Est. Rating (HLTV): **{hltv:.2f}** ({ocena_tekst})",
+                        description=f"{emotka_levelu} **{gracz['nick']}** | **{ocena_tekst}** (HLTV: **{hltv:.2f}**)\nBieżące punkty: {elo_tekst}",
                         color=kolor
                     )
                     
@@ -131,15 +151,18 @@ class TrackerCog(commands.Cog):
                     )
                     
                     embed.set_thumbnail(url=gracz['avatar_url'])
-                    embed.set_footer(text=f"Aktualne ELO wpisane w Faceit: {gracz['elo']}")
                     
                     try:
                         await kanal.send(content=alert_msg, embed=embed)
                     except discord.Forbidden:
                         pass # Brak uprawnień do postowania na danym kanale
 
-                # Zapisujemy mu ten mecz, by nie wysłać go drugi raz
-                mecze_baza[id_gracza] = aktualny_match_id
+                # Zapisujemy mu ten mecz jako SZERSZY SŁOWNIK
+                mecze_baza[id_gracza] = {
+                    "match_id": aktualny_match_id,
+                    "elo": int(gracz.get('elo', 0)) if str(gracz.get('elo', '')).isdigit() else 0,
+                    "poziom": int(gracz.get('poziom', 0)) if str(gracz.get('poziom', '')).isdigit() else 0
+                }
                 zmieniono_baze = True
                 
         if zmieniono_baze:
