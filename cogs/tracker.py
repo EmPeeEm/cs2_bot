@@ -83,7 +83,7 @@ class TrackerCog(commands.Cog):
         zapisz_ustawienia(ustawienia)
         await ctx.send(f"✅ Zmieniono `{klucz}`: `{stara}` ➔ `{nowa_wartosc}`")
 
-    @tasks.loop(minutes=0.1)
+    @tasks.loop(minutes=2.0)
     async def check_matches(self):
         # Czekamy, aż bot zsynchronizuje się z siecią Discord
         await self.bot.wait_until_ready()
