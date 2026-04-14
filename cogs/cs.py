@@ -542,51 +542,69 @@ class CSCommands(commands.Cog):
             await msg.edit(content=f"Ten gracz nie grał na mapach 5v5.")
             return
             
-        mapy_5v5 = []
+        mapy_pool = []
         for segment in katalog_map:
             if segment.get("mode") == "5v5" and segment.get("type") == "Map":
                 nazwa = segment.get("label", "Nieznana")
-                stats = segment.get("stats", {})
-                mecze_liczba = int(stats.get("Matches", 0))
-                win_rate = int(stats.get("Win Rate %", 0))
-                if mecze_liczba > 0:
-                    mapy_5v5.append({
-                        "nazwa": nazwa, "mecze": mecze_liczba, "wr": win_rate, 
-                        "kd": float(stats.get("Average K/D Ratio", 1))
-                    })
+                if nazwa in config.TOURNAMENT_MAPS:
+                    stats = segment.get("stats", {})
+                    mecze_liczba = int(stats.get("Matches", 0))
+                    win_rate = int(stats.get("Win Rate %", 0))
+                    kd = float(stats.get("Average K/D Ratio", 0))
+                    kr = float(stats.get("Average K/R Ratio", 0))
+                    hs = stats.get("Average Headshots %", "0")
+                    mvp = stats.get("Average MVPs", "0")
+                    k3 = stats.get("Triple Kills", "0")
+                    k4 = stats.get("Quadro Kills", "0")
                     
-        mapy_5v5.sort(key=lambda x: (x["wr"], x["kd"]), reverse=True)
-        if not mapy_5v5:
-            await msg.edit(content="Brak danych 5v5 dla tego profilu.")
-            return
-            
-        top_3 = mapy_5v5[:3]
-        bottom_3 = mapy_5v5[-3:]
-        bottom_3.reverse()
+                    mapy_pool.append({
+                        "nazwa": nazwa, "mecze": mecze_liczba, "wr": win_rate, 
+                        "kd": kd, "kr": kr, "hs": hs, "mvp": mvp,
+                        "k3": k3, "k4": k4
+                    })
         
+        # Uzupełniamy o mapy z puli, w które gracz nie grał
+        znalezione_nazwy = [m["nazwa"] for m in mapy_pool]
+        for m_name in config.TOURNAMENT_MAPS:
+            if m_name not in znalezione_nazwy:
+                mapy_pool.append({
+                    "nazwa": m_name, "mecze": 0, "wr": 0, "kd": 0.0, "kr": 0.0, 
+                    "hs": "0", "mvp": "0", "k3": "0", "k4": "0"
+                })
+        
+        # Sortowanie od najlepszej do najsłabszej
+        mapy_pool.sort(key=lambda x: (x["wr"], x["kd"]), reverse=True)
+            
         embed = discord.Embed(
-            title="Atlas Terenów (Mapy 5v5)",
-            description=f"Wizualizacja skuteczności map dla gracza: **{gracz['nick']}**",
+            title="Analityka Map Turniejowych (Dashboard)",
+            description=f"Szczegółowa wydajność operacyjna dla: **{gracz['nick']}**",
             color=get_cfg("main_color", 0x2b2d31)
         )
         
-        for i, m in enumerate(top_3):
+        for m in mapy_pool:
+            if m['mecze'] == 0:
+                emoji = "⚪"
+                value_text = "*Brak zarejestrowanych operacji*"
+            else:
+                if m['wr'] >= 55: emoji = "🟢"
+                elif m['wr'] >= 45: emoji = "🟡"
+                else: emoji = "🔴"
+                
+                value_text = (
+                    f"**W/R:** {m['wr']}% ({m['mecze']} gier)\n"
+                    f"**K/D:** {m['kd']} | **K/R:** {m['kr']}\n"
+                    f"**HS:** {m['hs']}% | **MVP:** {m['mvp']}\n"
+                    f"**Impact:** {m['k3']}x3K | {m['k4']}x4K"
+                )
+                
             embed.add_field(
-                name=f"🟢 {m['nazwa']} (Domena)",
-                value=f"W/R: **{m['wr']}%** z {m['mecze']} Gier\nK/D: **{m['kd']}**",
-                inline=True
-            )
-            
-        embed.add_field(name="\u200b", value="\u200b", inline=False) # Przerwa
-        
-        for i, m in enumerate(reversed(bottom_3)):
-            embed.add_field(
-                name=f"🔴 {m['nazwa']} (Weto)",
-                value=f"W/R: **{m['wr']}%** z {m['mecze']} Gier\nK/D: **{m['kd']}**",
+                name=f"{emoji} {m['nazwa']}",
+                value=value_text,
                 inline=True
             )
         
         embed.set_thumbnail(url=gracz['avatar_url'])
+        embed.set_footer(text="Legenda: 🟢 Pro | 🟡 Solidnie | 🔴 Słabo | K/R: Kills per Round")
         await msg.edit(content=None, embed=embed)
         
     @commands.command(name="compare", aliases=["porownaj", "c", "1v1", "arena"])

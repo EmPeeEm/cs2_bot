@@ -203,11 +203,11 @@ class TrackerCog(commands.Cog):
                     heading_roast = None
                     
                     # Ustalanie statusu do Embeda
-                    if hltv >= 1.30: ocena_tekst = "⭐ BESTIA"
-                    elif hltv >= 1.10: ocena_tekst = "✅ Bardzo dobrze"
-                    elif hltv >= 0.90: ocena_tekst = "😐 Solidnie"
-                    elif hltv >= 0.70: ocena_tekst = "📉 Słabo"
-                    else: ocena_tekst = "💀 BOT"
+                    if hltv >= 1.30: ocena_tekst = "BESTIA"
+                    elif hltv >= 1.10: ocena_tekst = "Bardzo dobrze"
+                    elif hltv >= 0.90: ocena_tekst = "Solidnie"
+                    elif hltv >= 0.70: ocena_tekst = "Słabo"
+                    else: ocena_tekst = "BOT"
 
                     # 1. Bezwzględny priorytet: Awans / Spadek
                     if stary_level and obecny_level != stary_level and stary_level > 0:

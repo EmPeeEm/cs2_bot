@@ -101,3 +101,6 @@ HLTV_BOT_TEXTS = [
     "Ty chyba grałeś z padem od Pegasusa. Nie da się być tak tragicznym celowo, ty masz to wpisane w DNA.",
     "Największy dzban meczu. Otwierasz tabelę... od dołu. Mam nadzieję, że chociaż ci wstyd za ten pokaz nieudolności."
 ]
+
+# --- MAPY ---
+TOURNAMENT_MAPS = ["Mirage", "Inferno", "Dust2", "Nuke", "Ancient", "Anubis", "Overpass"]
