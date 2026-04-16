@@ -32,7 +32,7 @@ class TrackerCog(commands.Cog):
             embed = discord.Embed(
                 title="⚙️ Konfiguracja Systemu",
                 description=f"Użyj: `{ctx.prefix}config [klucz] [wartość]`\n\n"
-                            "**Klucze:** `prefix`, `tilt_limit`, `main_color`, `kanal_eventow`, `kanal_sezonu`\n"
+                            "**Klucze:** `prefix`, `tilt_limit`, `main_color`, `kanal_eventow`, `kanal_sezonu`, `kanal_podsumowan_elo`\n"
                             "**Klucze wizualne:** `level_emojis`, `level_default`\n\n"
                             f"*Zdania (_texts) edytuj bezpośrednio w config.py!*",
                 color=get_cfg("main_color", 0x2b2d31)
@@ -45,6 +45,7 @@ class TrackerCog(commands.Cog):
 
             embed.add_field(name="Kanał Eventów", value=f"<#{ustawienia.get('kanal_eventow')}>" if ustawienia.get('kanal_eventow') else "Brak", inline=True)
             embed.add_field(name="Kanał Sezonu", value=f"<#{ustawienia.get('kanal_sezonu')}>" if ustawienia.get('kanal_sezonu') else "Brak", inline=True)
+            embed.add_field(name="Kanał ELO (Tydzień)", value=f"<#{ustawienia.get('kanal_podsumowan_elo')}>" if ustawienia.get('kanal_podsumowan_elo') else "Brak", inline=True)
             
             await ctx.send(embed=embed)
             return
@@ -61,7 +62,7 @@ class TrackerCog(commands.Cog):
             operacja = None
 
         if not wartosc:
-            if klucz in ["kanal_eventow", "kanal_sezonu"]:
+            if klucz in ["kanal_eventow", "kanal_sezonu", "kanal_podsumowan_elo"]:
                 nowa_wartosc = ctx.channel.id
             else:
                 await ctx.send(f"❌ Musisz podać wartość dla `{klucz}`.")
@@ -361,9 +362,41 @@ class TrackerCog(commands.Cog):
             return
             
         current_avg = round(total_elo / count, 1)
-        last_avg = ustawienia.get("ostatnie_srednie_elo", current_avg)
         
-        # Obliczanie różnicy
+        import datetime
+        now = datetime.datetime.now()
+        aktualny_tydzien = f"{now.isocalendar()[0]}-W{now.isocalendar()[1]}"
+        
+        last_avg = ustawienia.get("ostatnie_srednie_elo", current_avg)
+        zapisany_tydzien = ustawienia.get("ostatni_tydzien_resetu", "")
+        
+        if zapisany_tydzien and aktualny_tydzien != zapisany_tydzien:
+            diff = round(current_avg - last_avg, 1)
+            znak = "+" if diff > 0 else ""
+            
+            kanal_podsumowan_id = ustawienia.get("kanal_podsumowan_elo")
+            if kanal_podsumowan_id:
+                try:
+                    kanal_podsumowan = self.bot.get_channel(int(kanal_podsumowan_id))
+                    if kanal_podsumowan:
+                        embed = discord.Embed(
+                            title="📅 Tygodniowe Podsumowanie Średniego ELO",
+                            description=f"Średnie ELO ekipy w tym tygodniu zmieniło się o: **{znak}{diff}**!\nAktualna średnia wynosi: **{current_avg}**.",
+                            color=get_cfg("main_color", 0x2b2d31)
+                        )
+                        await kanal_podsumowan.send(embed=embed)
+                except Exception as e:
+                    print(f"⚠️ Błąd przy wysyłaniu podsumowania tygodniowego ELO: {e}")
+            
+            last_avg = current_avg
+            ustawienia["ostatnie_srednie_elo"] = current_avg
+            ustawienia["ostatni_tydzien_resetu"] = aktualny_tydzien
+            zapisz_ustawienia(ustawienia)
+        elif not zapisany_tydzien:
+            ustawienia["ostatni_tydzien_resetu"] = aktualny_tydzien
+            zapisz_ustawienia(ustawienia)
+            
+        # Obliczanie różnicy (od początku tygodnia)
         diff = round(current_avg - last_avg, 1)
         znak = "+" if diff > 0 else ""
         diff_text = f" ({znak}{diff})" if diff != 0 else ""
@@ -375,9 +408,6 @@ class TrackerCog(commands.Cog):
             # Porównujemy z aktualną nazwą, żeby nie marnować API jeśli nic się nie zmieniło
             if kanal.name != new_name:
                 await kanal.edit(name=new_name)
-                # Zapisujemy nową średnią jako punkt odniesienia dla następnej godziny
-                ustawienia["ostatnie_srednie_elo"] = current_avg
-                zapisz_ustawienia(ustawienia)
         except Exception as e:
             print(f"⚠️ Błąd aktualizacji nazwy kanału ELO: {e}")
 
