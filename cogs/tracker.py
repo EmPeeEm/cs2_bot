@@ -186,6 +186,19 @@ class TrackerCog(commands.Cog):
                     obecne_elo = int(gracz.get('elo', 0)) if str(gracz.get('elo', '')).isdigit() else 0
                     obecny_level = int(gracz.get('poziom', 0)) if str(gracz.get('poziom', '')).isdigit() else 0
 
+                    # 🕒 System opóźniający dla Faceit API (unika wysyłania powiadomień +0 ELO, jeśli Faceit jeszcze nie odświeżył ELO)
+                    if stare_elo is not None and obecne_elo == stare_elo:
+                        retry_count = zapis_bazy.get("retry_count", 0) if isinstance(zapis_bazy, dict) else 0
+                        if retry_count < 3: # 3 próby zapasu (ok. 6 minut)
+                            mecze_baza[id_gracza] = {
+                                "match_id": zapisany_match_id, # Zachowujemy stary match_id, by pętla uruchomiła się ponownie
+                                "elo": stare_elo,
+                                "poziom": stary_level,
+                                "retry_count": retry_count + 1
+                            }
+                            zmieniono_baze = True
+                            continue # Pomijamy resztę w tym cyklu - spróbujemy za 2 minuty
+
                     elo_tekst = f"**{obecne_elo}**"
                     if stare_elo and obecne_elo > 0 and stare_elo > 0:
                         roznica = obecne_elo - stare_elo
