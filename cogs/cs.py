@@ -335,8 +335,8 @@ class CSCommands(commands.Cog):
             return
                 
         # Zabezpieczenie przed nadużyciami limitu
-        if limit > 50:
-            limit = 50
+        if limit > 100:
+            limit = 100
         elif limit < 1:
             limit = 10
             
@@ -624,7 +624,7 @@ class CSCommands(commands.Cog):
             return
             
         # Zabezpieczenie limitu
-        limit = min(max(1, limit), 50)
+        limit = min(max(1, limit), 100)
             
         from utils.faceit_api import get_player_stats, get_multiple_matches_stats
         nick1 = self.parse_nick(ctx, [targets[0]], default_to_author=False)
@@ -820,7 +820,7 @@ class CSCommands(commands.Cog):
         embed.add_field(name="🔗 Aliasy (skróty)", value=aliases, inline=False)
         
         if name == "recent":
-             embed.add_field(name="ℹ️ Info", value="Domyślnie analizuje 20 meczów. Możesz podać własną liczbę (max 50).", inline=False)
+             embed.add_field(name="ℹ️ Info", value="Domyślnie analizuje 20 meczów. Możesz podać własną liczbę (max 100).", inline=False)
         elif name == "compare":
              embed.add_field(name="ℹ️ Info", value="Możesz spingować dwóch graczy lub wpisać ich nicki ręcznie.", inline=False)
 

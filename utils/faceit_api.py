@@ -9,14 +9,22 @@ load_dotenv()
 FACEIT_KEY = os.getenv('FACEIT_API_KEY')
 BASE_URL = "https://open.faceit.com/data/v4"
 
+_session = None
+
+async def get_session():
+    global _session
+    if _session is None or _session.closed:
+        _session = aiohttp.ClientSession()
+    return _session
+
 async def get_faceit_data(endpoint: str):
-    """Pomocnicza funkcja do zapytań API"""
+    """Pomocnicza funkcja do zapytań API (z connection pooling)"""
     headers = {"Authorization": f"Bearer {FACEIT_KEY}"}
-    async with aiohttp.ClientSession() as session:
-        async with session.get(f"{BASE_URL}/{endpoint}", headers=headers) as response:
-            if response.status == 200:
-                return await response.json()
-            return None
+    session = await get_session()
+    async with session.get(f"{BASE_URL}/{endpoint}", headers=headers) as response:
+        if response.status == 200:
+            return await response.json()
+        return None
 
 async def get_player_stats(nickname: str):
     """Pobiera podstawowe info o graczu (ELO, Level)"""
@@ -105,8 +113,12 @@ async def get_multiple_matches_stats(player_id: str, limit: int = 30):
         
     items = historia.get("items", [])
     
+    sem = asyncio.Semaphore(5)
+    
     async def fetch_single(match_id):
-        return await get_faceit_data(f"matches/{match_id}/stats")
+        async with sem:
+            await asyncio.sleep(0.1)
+            return await get_faceit_data(f"matches/{match_id}/stats")
         
     wyniki = await asyncio.gather(*(fetch_single(item["match_id"]) for item in items))
     
