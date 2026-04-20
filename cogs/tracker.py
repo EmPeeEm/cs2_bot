@@ -171,15 +171,6 @@ class TrackerCog(commands.Cog):
                 # Blokujemy spam starymi meczami przy starcie programu.
                 # Pisze on powiadomienia TYLKO jeśli baza już go w ogóle zna.
                 if id_gracza in mecze_baza:
-                    win = mecz['win']
-                    # Logika Tilt-Metera
-                    stary_streak = tilt_baza.get(id_gracza, 0)
-                    nowy_streak = (max(0, stary_streak) + 1) if win else (min(0, stary_streak) - 1)
-                    tilt_baza[id_gracza] = nowy_streak
-                    zmieniono_tilt = True
-                    
-                    tilt_limit = get_cfg("tilt_limit", 3)
-                    
                     # --- OBLICZENIA ELO I POZIOMÓW ---
                     stare_elo = zapis_bazy.get("elo") if isinstance(zapis_bazy, dict) else None
                     stary_level = zapis_bazy.get("poziom") if isinstance(zapis_bazy, dict) else None
@@ -199,6 +190,15 @@ class TrackerCog(commands.Cog):
                             zmieniono_baze = True
                             continue # Pomijamy resztę w tym cyklu - spróbujemy za 2 minuty
 
+                    win = mecz['win']
+                    # Logika Tilt-Metera
+                    stary_streak = tilt_baza.get(id_gracza, 0)
+                    nowy_streak = (max(0, stary_streak) + 1) if win else (min(0, stary_streak) - 1)
+                    tilt_baza[id_gracza] = nowy_streak
+                    zmieniono_tilt = True
+                    
+                    tilt_limit = get_cfg("tilt_limit", 3)
+                    
                     elo_tekst = f"**{obecne_elo}**"
                     if stare_elo and obecne_elo > 0 and stare_elo > 0:
                         roznica = obecne_elo - stare_elo
