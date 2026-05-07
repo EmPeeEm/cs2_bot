@@ -7,11 +7,12 @@ from utils.database import (
     wczytaj_ostatnie_mecze, zapisz_ostatnie_mecze,
     wczytaj_tilt, zapisz_tilt, get_cfg
 )
-from utils.faceit_api import get_player_stats, get_last_match_stats
+from utils.faceit_api import get_player_stats, get_last_match_stats, get_player_id, get_latest_match_id
 
 class TrackerCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self.player_id_cache = {} # Cache Nickname -> PlayerID
         self.check_matches.start()  # Monitorowanie meczów
         self.update_team_elo_channel.start()  # Średnie ELO ekipy
 
@@ -127,7 +128,7 @@ class TrackerCog(commands.Cog):
         except Exception as e:
             await ctx.send(f"❌ Błąd przy tworzeniu kanału: {e}")
 
-    @tasks.loop(minutes=2.0)
+    @tasks.loop(minutes=0.5)
     async def check_matches(self):
         # Czekamy, aż bot zsynchronizuje się z siecią Discord
         await self.bot.wait_until_ready()
@@ -138,28 +139,55 @@ class TrackerCog(commands.Cog):
         
         if not kanal_id:
             return
-            
-        kanal = self.bot.get_channel(kanal_id)
-        if not kanal:
-            return
-            
+
         ekipa = wczytaj_ekipe()
         mecze_baza = wczytaj_ostatnie_mecze()
         tilt_baza = wczytaj_tilt()
-        zmieniono_baze = False
-        zmieniono_tilt = False
+        kanal = self.bot.get_channel(kanal_id)
+        
+        if not kanal:
+            return
 
-        # --- OPTYMALIZACJA: Zrównoleglone pobieranie danych ---
         import asyncio
-        async def fetch_player_info(d_id, nickname):
-            gracz = await get_player_stats(nickname, lifetime=False)
-            if not gracz or gracz == "error":
+        
+        # Funkcja do szybkiego sprawdzania ID meczu
+        async def check_player_match(d_id, nickname):
+            # 1. Pobierz PlayerID (z cache lub API)
+            p_id = self.player_id_cache.get(nickname)
+            if not p_id:
+                p_id = await get_player_id(nickname)
+                if p_id:
+                    self.player_id_cache[nickname] = p_id
+            
+            if not p_id:
                 return None
-            mecz = await get_last_match_stats(gracz["player_id"])
+            
+            # 2. Pobierz ID ostatniego meczu (lekki request)
+            current_match_id = await get_latest_match_id(p_id)
+            if not current_match_id:
+                return None
+                
+            # 3. Sprawdź czy to nowy mecz
+            zapis_bazy = mecze_baza.get(p_id)
+            saved_match_id = zapis_bazy if isinstance(zapis_bazy, str) else zapis_bazy.get("match_id") if isinstance(zapis_bazy, dict) else None
+            
+            if current_match_id == saved_match_id:
+                # Jeśli ELO retry jest w toku, musimy sprawdzić pełne staty gracza
+                if isinstance(zapis_bazy, dict) and zapis_bazy.get("retry_count", 0) > 0:
+                    pass # Kontynuujemy do pełnego pobierania, by sprawdzić ELO
+                else:
+                    return None # Nic się nie zmieniło, kończymy szybko
+            
+            # 4. Coś się zmieniło -> pobierz pełne dane (cięższe requesty)
+            gracz = await get_player_stats(nickname, lifetime=False)
+            mecz = await get_last_match_stats(p_id)
             return {"discord_id": d_id, "gracz": gracz, "mecz": mecz}
 
-        tasks = [fetch_player_info(d_id, nick) for d_id, nick in ekipa.items()]
+        tasks = [check_player_match(d_id, nick) for d_id, nick in ekipa.items()]
         results = await asyncio.gather(*tasks)
+
+        zmieniono_baze = False
+        zmieniono_tilt = False
 
         for res in results:
             if not res or not res["mecz"]:
@@ -284,29 +312,50 @@ class TrackerCog(commands.Cog):
                     emotki = get_cfg("level_emojis", config.LEVEL_EMOJIS)
                     emotka_levelu = emotki.get(poziom_str, get_cfg("level_default", config.LEVEL_DEFAULT))
 
+                    # Tytuł zbliżony do oryginalnego
                     embed = discord.Embed(
                         title=f"{wynik_tekst}: Mecz na {mecz['mapa']} ({mecz['wynik']})",
-                        description=f"{emotka_levelu} **{gracz['nick']}** | **{ocena_tekst}** (HLTV: **{hltv:.2f}**)\nBieżące punkty: {elo_tekst}",
+                        description=f"{emotka_levelu} **{gracz['nick']}** | **{ocena_tekst}** (HLTV: **{mecz['hltv']:.2f}**)\nBieżące punkty: {elo_tekst}",
                         color=kolor
                     )
                     
+                    # Grupowanie statystyk strzeleckich (z rozszerzeniem o multi-kille i entry)
+                    mk = []
+                    if mecz.get('triple_kills', 0) > 0: mk.append(f"3k: **{mecz['triple_kills']}**")
+                    if mecz.get('quadro_kills', 0) > 0: mk.append(f"4k: **{mecz['quadro_kills']}**")
+                    if mecz.get('penta_kills', 0) > 0: mk.append(f"**ACE**")
+                    mk_text = f"\nMulti: {', '.join(mk)}" if mk else ""
+
+                    entry_rate = int(mecz.get('entry_success', 0))
+                    entry_text = f"Entry Wins: **{int(mecz.get('entry_wins', 0))}** (Skuteczność: **{entry_rate}%**)"
+
                     embed.add_field(
                         name="Rezultaty Strzeleckie", 
-                        value=f"K/D/A: **{mecz['kille']} / {mecz['dedy']} / {mecz['asysty']}**\n"
+                        value=f"K/D/A: **{int(mecz['kille'])} / {int(mecz['dedy'])} / {int(mecz['asysty'])}**\n"
                               f"K/D Ratio: **{mecz['kd']}**\n"
-                              f"Entry Kills: **{int(mecz.get('entry_wins', 0))}**\n"
-                              f"ADR: **{mecz.get('adr', 0)}**", 
+                              f"{entry_text}\n"
+                              f"ADR: **{mecz['adr']}**"
+                              f"{mk_text}", 
                         inline=True
                     )
                     
+                    # Grupowanie utility (z rozszerzeniem o sniper/flash success)
                     suma_clutches = int(mecz.get('clutch_1v1', 0) + mecz.get('clutch_1v2', 0))
+                    flash_rate = int(mecz.get('flash_success', 0))
                     
+                    extra_stats = ""
+                    if mecz.get('sniper_kills', 0) >= 5:
+                        extra_stats = f"\nSnajper: **{mecz['sniper_kills']}** killi"
+                    elif flash_rate > 60:
+                        extra_stats = f"\nFlash Success: **{flash_rate}%**"
+
                     embed.add_field(
                         name="Utility i Zgranie", 
-                        value=f"Headshoty: **{mecz['hs_procent']}%**\n"
+                        value=f"Headshoty: **{int(mecz['hs_procent'])}%**\n"
                               f"Wygrane Clutche: **{suma_clutches}**\n"
-                              f"Utility Dmg: **{mecz.get('ud', 0)}**\n"
-                              f"MVPs: **{mecz['mvp']}**", 
+                              f"Utility Dmg: **{int(mecz.get('ud', 0))}**\n"
+                              f"MVPs: **{int(mecz['mvp'])}**"
+                              f"{extra_stats}", 
                         inline=True
                     )
                     

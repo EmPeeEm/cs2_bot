@@ -26,6 +26,18 @@ async def get_faceit_data(endpoint: str):
             return await response.json()
         return None
 
+async def get_player_id(nickname: str):
+    """Szybkie pobieranie samego player_id na podstawie nicku"""
+    dane = await get_faceit_data(f"players?nickname={nickname}")
+    return dane.get("player_id") if dane else None
+
+async def get_latest_match_id(player_id: str):
+    """Pobiera ID ostatniego meczu bez statystyk (bardzo lekkie zapytanie)"""
+    historia = await get_faceit_data(f"players/{player_id}/history?game=cs2&offset=0&limit=1")
+    if historia and historia.get("items"):
+        return historia["items"][0].get("match_id")
+    return None
+
 async def get_player_stats(nickname: str, lifetime: bool = True):
     """Pobiera podstawowe info o graczu (ELO, Level). Opcjonalnie statystyki kariery."""
     dane = await get_faceit_data(f"players?nickname={nickname}")
@@ -93,6 +105,7 @@ async def get_last_match_stats(player_id: str):
                         "match_id": match_id,
                         "mapa": rs.get("Map", "Brak danych"),
                         "wynik": rs.get("Score", "Brak danych"),
+                        "rounds": float(rs.get("Rounds", 0)),
                         "kille": kille,
                         "asysty": asysty,
                         "dedy": dedy,
@@ -107,7 +120,14 @@ async def get_last_match_stats(player_id: str):
                         "ef": float(ps.get("Enemies Flashed", 0)),
                         "clutch_1v1": float(ps.get("1v1Wins", 0)),
                         "clutch_1v2": float(ps.get("1v2Wins", 0)),
-                        "entry_wins": float(ps.get("First Kills", 0)),  # Można z First Kills albo Entry Wins
+                        "entry_wins": float(ps.get("First Kills", 0)),
+                        "entry_success": float(ps.get("Match Entry Success Rate", 0)) * 100,
+                        "flash_success": float(ps.get("Flash Success Rate per Match", 0)) * 100,
+                        "triple_kills": int(ps.get("Triple Kills", 0)),
+                        "quadro_kills": int(ps.get("Quadro Kills", 0)),
+                        "penta_kills": int(ps.get("Penta Kills", 0)),
+                        "sniper_kills": int(ps.get("Sniper Kills", 0)),
+                        "sniper_kr": float(ps.get("Sniper Kill Rate per Round", 0)),
                         "hltv": round(hltv_rating, 2)
                     }
     return None
@@ -147,6 +167,7 @@ async def get_multiple_matches_stats(player_id: str, limit: int = 30):
                         hltv_rating = (kille + 0.7 * asysty + (rundy - dedy) * 0.6) / rundy if rundy > 0 else 0
                         
                         podsumowanie.append({
+                            "match_id": mecz_dane.get("match_id"),
                             "kille": kille,
                             "asysty": asysty,
                             "dedy": dedy,
@@ -164,6 +185,11 @@ async def get_multiple_matches_stats(player_id: str, limit: int = 30):
                             "clutch_1v1": float(ps.get("1v1Wins", 0)),
                             "clutch_1v2": float(ps.get("1v2Wins", 0)),
                             "entry_wins": float(ps.get("First Kills", 0)), 
+                            "entry_success": float(ps.get("Match Entry Success Rate", 0)),
+                            "triple_kills": int(ps.get("Triple Kills", 0)),
+                            "quadro_kills": int(ps.get("Quadro Kills", 0)),
+                            "penta_kills": int(ps.get("Penta Kills", 0)),
+                            "sniper_kills": int(ps.get("Sniper Kills", 0)),
                             "hltv": round(hltv_rating, 2)
                         })
     return podsumowanie

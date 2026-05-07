@@ -100,21 +100,45 @@ class CSCommands(commands.Cog):
             color=kolor
         )
         
-        embed.add_field(name="Wyniki Strzeleckie", 
-                        value=f"K/D/A: **{int(mecz['kille'])}/{int(mecz['dedy'])}/{int(mecz['asysty'])}**\n"
-                              f"K/D Ratio: **{mecz['kd']}** (KPR: **{mecz['kr']}**)\n"
-                              f"Headshoty: **{mecz['hs_procent']}%**\n"
-                              f"ADR: **{mecz['adr']}**", inline=True)
-                              
-        embed.add_field(name="Taktyka & Zagrywki", 
-                        value=f"Est. HLTV: **{mecz['hltv']}**\n"
-                              f"Utility: **{int(mecz['ud'])}** Dmg (Śr. **{mecz['udpr']}**)\n"
-                              f"Oślepieni wrogowie: **{int(mecz['ef'])}**\n"
-                              f"Entry Kills: **{int(mecz['entry_wins'])}**\n"
-                              f"Wyg. Clutche (1vX): **{int(mecz['clutch_1v1']+mecz['clutch_1v2'])}**", inline=True)
-                              
-        embed.add_field(name="🎖️ MVP Spotkania", 
-                        value=f"Gwiazdki: **{int(mecz['mvp'])}**\n", inline=False)
+        # Grupowanie statystyk strzeleckich
+        mk = []
+        if mecz.get('triple_kills', 0) > 0: mk.append(f"3k: **{mecz['triple_kills']}**")
+        if mecz.get('quadro_kills', 0) > 0: mk.append(f"4k: **{mecz['quadro_kills']}**")
+        if mecz.get('penta_kills', 0) > 0: mk.append(f"**ACE**")
+        mk_text = f"\nMulti: {', '.join(mk)}" if mk else ""
+
+        entry_rate = int(mecz.get('entry_success', 0))
+        entry_text = f"Entry Wins: **{int(mecz.get('entry_wins', 0))}** (Skuteczność: **{entry_rate}%**)"
+
+        embed.add_field(
+            name="Rezultaty Strzeleckie", 
+            value=f"K/D/A: **{int(mecz['kille'])} / {int(mecz['dedy'])} / {int(mecz['asysty'])}**\n"
+                  f"K/D Ratio: **{mecz['kd']}**\n"
+                  f"{entry_text}\n"
+                  f"ADR: **{mecz['adr']}**"
+                  f"{mk_text}", 
+            inline=True
+        )
+        
+        # Grupowanie utility
+        suma_clutches = int(mecz.get('clutch_1v1', 0) + mecz.get('clutch_1v2', 0))
+        flash_rate = int(mecz.get('flash_success', 0))
+        
+        extra_stats = ""
+        if mecz.get('sniper_kills', 0) >= 5:
+            extra_stats = f"\nSnajper: **{mecz['sniper_kills']}** killi"
+        elif flash_rate > 60:
+            extra_stats = f"\nFlash Success: **{flash_rate}%**"
+
+        embed.add_field(
+            name="Utility i Zgranie", 
+            value=f"Headshoty: **{int(mecz['hs_procent'])}%**\n"
+                  f"Wygrane Clutche: **{suma_clutches}**\n"
+                  f"Utility Dmg: **{int(mecz.get('ud', 0))}**\n"
+                  f"MVPs: **{int(mecz['mvp'])}**"
+                  f"{extra_stats}", 
+            inline=True
+        )
         
         embed.set_thumbnail(url=gracz['avatar_url'])
 
