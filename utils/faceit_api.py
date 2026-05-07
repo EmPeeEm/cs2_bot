@@ -26,35 +26,41 @@ async def get_faceit_data(endpoint: str):
             return await response.json()
         return None
 
-async def get_player_stats(nickname: str):
-    """Pobiera podstawowe info o graczu (ELO, Level)"""
+async def get_player_stats(nickname: str, lifetime: bool = True):
+    """Pobiera podstawowe info o graczu (ELO, Level). Opcjonalnie statystyki kariery."""
     dane = await get_faceit_data(f"players?nickname={nickname}")
     if not dane: return None
     
     player_id = dane.get("player_id")
     cs2_dane = dane.get("games", {}).get("cs2", {})
     
-    # Pobierzmy też Lifetime z drugiej ścieżki
-    lifetime_dane = await get_faceit_data(f"players/{player_id}/stats/cs2")
-    lifetime = lifetime_dane.get("lifetime", {}) if lifetime_dane else {}
-    
-    return {
+    stats = {
         "player_id": player_id,
         "nick": dane.get("nickname"),
         "poziom": cs2_dane.get("skill_level", "Brak"),
         "elo": cs2_dane.get("faceit_elo", "Brak"),
         "avatar_url": dane.get("avatar") or "https://i.imgur.com/vHq100B.png",
         "url_profilu": f"https://www.faceit.com/pl/players/{dane.get('nickname')}",
-        "lifetime_clutches": int(lifetime.get("Total 1v1 Wins", 0)) + int(lifetime.get("Total 1v2 Wins", 0)),
-        "lifetime_entry": lifetime.get("Total Entry Wins", "0"),
-        "lifetime_hs": lifetime.get("Average Headshots %", "0"),
-        "lifetime_winrate": lifetime.get("Win Rate %", "0"),
-        "lifetime_kd": lifetime.get("Average K/D Ratio", "0"),
-        "lifetime_adr": lifetime.get("ADR", "0"),
-        "lifetime_matches": lifetime.get("Matches", "0"),
-        "lifetime_wins": lifetime.get("Wins", "0"),
-        "lifetime_winstreak": lifetime.get("Current Win Streak", "0")
     }
+
+    if lifetime:
+        # Pobierzmy też Lifetime z drugiej ścieżki
+        lifetime_dane = await get_faceit_data(f"players/{player_id}/stats/cs2")
+        lifetime_obj = lifetime_dane.get("lifetime", {}) if lifetime_dane else {}
+        
+        stats.update({
+            "lifetime_clutches": int(lifetime_obj.get("Total 1v1 Wins", 0)) + int(lifetime_obj.get("Total 1v2 Wins", 0)),
+            "lifetime_entry": lifetime_obj.get("Total Entry Wins", "0"),
+            "lifetime_hs": lifetime_obj.get("Average Headshots %", "0"),
+            "lifetime_winrate": lifetime_obj.get("Win Rate %", "0"),
+            "lifetime_kd": lifetime_obj.get("Average K/D Ratio", "0"),
+            "lifetime_adr": lifetime_obj.get("ADR", "0"),
+            "lifetime_matches": lifetime_obj.get("Matches", "0"),
+            "lifetime_wins": lifetime_obj.get("Wins", "0"),
+            "lifetime_winstreak": lifetime_obj.get("Current Win Streak", "0")
+        })
+    
+    return stats
 
 async def get_last_match_stats(player_id: str):
     """Pobiera statystyki ostatniego meczu gracza"""

@@ -135,13 +135,19 @@ class CSCommands(commands.Cog):
             await msg.edit(content=f"Ekipa jest pusta! Dodaj kogoś używając `{ctx.prefix}polacz [nick]`.")
             return
 
-        wyniki = []
+        import asyncio
+        tasks = []
         for discord_id, nick in ekipa.items():
-            dane = await get_player_stats(nick)
-            
+            tasks.append(get_player_stats(nick, lifetime=False))
+        
+        results = await asyncio.gather(*tasks)
+        
+        wyniki = []
+        ekipa_items = list(ekipa.items())
+        for i, dane in enumerate(results):
             # Sprawdzamy czy pobrało dane poprawnie i czy gracz ma jakieś ELO
             if dane and dane != "error":
-                dane["discord_id"] = discord_id
+                dane["discord_id"] = ekipa_items[i][0]
                 wyniki.append(dane)
 
         # Sortowanie graczy po ELO od najwyższego do najniższego
@@ -207,16 +213,22 @@ class CSCommands(commands.Cog):
             await msg.edit(content="Ekipa jest pusta!")
             return
 
+        import asyncio
+        tasks = []
+        ekipa_ids = list(ekipa.keys())
+        for nick in ekipa.values():
+            tasks.append(get_player_stats(nick, lifetime=False))
+            
+        results = await asyncio.gather(*tasks)
+
         wyniki = []
-        # Pobieramy ID graczy, żeby dopasować ich do tilt.json
-        for discord_id, nick in ekipa.items():
-            dane = await get_player_stats(nick)
+        for i, dane in enumerate(results):
             if dane and dane != "error":
                 pid = dane['player_id']
                 streak = tilt_baza.get(pid, 0)
                 wyniki.append({
-                    "nick": nick,
-                    "discord_id": discord_id,
+                    "nick": dane['nick'],
+                    "discord_id": ekipa_ids[i],
                     "streak": streak
                 })
 

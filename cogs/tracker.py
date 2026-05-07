@@ -137,27 +137,37 @@ class TrackerCog(commands.Cog):
         kanal_id = ustawienia.get("kanal_eventow")
         
         if not kanal_id:
-            # Kanał jeszcze nie zaistniał, nie marnujemy requestów do API
             return
             
         kanal = self.bot.get_channel(kanal_id)
         if not kanal:
-            return  # Możliwe, że kanał ustawiony kiedyś tam został usunięty z Discorda
+            return
             
         ekipa = wczytaj_ekipe()
         mecze_baza = wczytaj_ostatnie_mecze()
         tilt_baza = wczytaj_tilt()
         zmieniono_baze = False
         zmieniono_tilt = False
-        
-        for discord_id, nick in ekipa.items():
-            gracz = await get_player_stats(nick)
+
+        # --- OPTYMALIZACJA: Zrównoleglone pobieranie danych ---
+        import asyncio
+        async def fetch_player_info(d_id, nickname):
+            gracz = await get_player_stats(nickname, lifetime=False)
             if not gracz or gracz == "error":
-                continue
-                
+                return None
             mecz = await get_last_match_stats(gracz["player_id"])
-            if not mecz:
+            return {"discord_id": d_id, "gracz": gracz, "mecz": mecz}
+
+        tasks = [fetch_player_info(d_id, nick) for d_id, nick in ekipa.items()]
+        results = await asyncio.gather(*tasks)
+
+        for res in results:
+            if not res or not res["mecz"]:
                 continue
+            
+            discord_id = res["discord_id"]
+            gracz = res["gracz"]
+            mecz = res["mecz"]
                 
             # Sprawdzamy czy ten sam match id już istnieje w lokalnej bazie
             id_gracza = gracz["player_id"]
@@ -207,11 +217,6 @@ class TrackerCog(commands.Cog):
                             elo_tekst += f" *({znak}{roznica} ELO)*"
 
                     # --- LOGIKA GENEROWANIA KOMENTARZA (ALERT MSG) ---
-                    hltv = float(mecz.get('hltv', 0))
-                    ocena_tekst = "Przeciętnie"
-                    heading_roast = None
-                    
-                    # --- LOGIKA WYBORU KOMENTARZA (HEADING ROAST) ---
                     hltv = float(mecz.get('hltv', 0))
                     ocena_tekst = "Przeciętnie"
                     heading_roast = None
@@ -358,12 +363,16 @@ class TrackerCog(commands.Cog):
             return
             
         ekipa = wczytaj_ekipe()
+        
+        # --- OPTYMALIZACJA: Zrównoleglone pobieranie danych ELO ---
+        import asyncio
+        tasks = [get_player_stats(nick, lifetime=False) for nick in ekipa.values()]
+        gracze_wyniki = await asyncio.gather(*tasks)
+        
         total_elo = 0
         count = 0
         
-        # Pobieramy świeże dane o każdym z listy ekipy
-        for nick in ekipa.values():
-            gracz = await get_player_stats(nick)
+        for gracz in gracze_wyniki:
             if gracz and gracz != "error" and gracz.get("elo"):
                 try:
                     total_elo += int(gracz["elo"])
