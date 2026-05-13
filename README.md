@@ -1,0 +1,1 @@
+pm2 start main.py --name "bot" --interpreter /home/user/cs2_bot/venv/bin/python3

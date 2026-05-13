@@ -26,9 +26,11 @@ async def get_faceit_data(endpoint: str):
             return await response.json()
         return None
 
-async def get_player_id(nickname: str):
-    """Szybkie pobieranie samego player_id na podstawie nicku"""
-    dane = await get_faceit_data(f"players?nickname={nickname}")
+async def get_player_id(identifier: str):
+    """Szybkie pobieranie samego player_id na podstawie nicku lub ID"""
+    if is_uuid(identifier):
+        return identifier
+    dane = await get_faceit_data(f"players?nickname={identifier}")
     return dane.get("player_id") if dane else None
 
 async def get_latest_match_id(player_id: str):
@@ -38,9 +40,18 @@ async def get_latest_match_id(player_id: str):
         return historia["items"][0].get("match_id")
     return None
 
-async def get_player_stats(nickname: str, lifetime: bool = True):
+import re
+
+def is_uuid(identifier: str):
+    """Sprawdza czy ciąg znaków jest w formacie UUID (player_id)"""
+    return bool(re.match(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', str(identifier).lower()))
+
+async def get_player_stats(identifier: str, lifetime: bool = True):
     """Pobiera podstawowe info o graczu (ELO, Level). Opcjonalnie statystyki kariery."""
-    dane = await get_faceit_data(f"players?nickname={nickname}")
+    if is_uuid(identifier):
+        dane = await get_faceit_data(f"players/{identifier}")
+    else:
+        dane = await get_faceit_data(f"players?nickname={identifier}")
     if not dane: return None
     
     player_id = dane.get("player_id")

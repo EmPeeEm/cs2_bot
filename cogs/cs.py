@@ -3,7 +3,7 @@
 import discord
 from discord.ext import commands
 import typing
-from utils.faceit_api import get_player_stats
+from utils.faceit_api import get_player_stats, is_uuid
 import config
 from utils.database import wczytaj_ekipe, zapisz_ekipe, wczytaj_sezon, zapisz_sezon, get_cfg
 
@@ -17,8 +17,9 @@ class CSCommands(commands.Cog):
         if not await self.check_nick(ctx, nickname, args[0] if args else None):
             return
 
-        # Wysyłamy status ładowania
-        msg = await ctx.send(f"Przeszukuję serwery Faceit dla gracza **{nickname}**...")
+        # Wybieramy nazwę do wyświetlenia (żeby nie pokazywać UUID w wiadomości ładowania)
+        display_name = nickname if not is_uuid(nickname) else "gracza"
+        msg = await ctx.send(f"Przeszukuję serwery Faceit dla **{display_name}**...")
         
         # Pobieramy dane używając naszego pliku z utils
         dane = await get_player_stats(nickname)
@@ -70,7 +71,8 @@ class CSCommands(commands.Cog):
         if not await self.check_nick(ctx, nickname, args[0] if args else None):
             return
 
-        msg = await ctx.send(f"Pobieram dane o ostatnim meczu gracza **{nickname}**...")
+        display_name = nickname if not is_uuid(nickname) else "gracza"
+        msg = await ctx.send(f"Pobieram dane o ostatnim meczu dla **{display_name}**...")
         
         # Najpierw musimy pobrać player_id
         gracz = await get_player_stats(nickname)
@@ -322,7 +324,8 @@ class CSCommands(commands.Cog):
             await msg.edit(content=f"Taki gracz nie istnieje na Faceit: **{faceit_nick}**.")
             return
 
-        ekipa[discord_id] = faceit_nick
+        player_id = test['player_id']
+        ekipa[discord_id] = player_id
         zapisz_ekipe(ekipa)
         
         # WPISANIE DO TRWAJĄCEGO SEZONU (Zabezpiecza przed omijaniem late-joinerów)
@@ -376,7 +379,8 @@ class CSCommands(commands.Cog):
         elif limit < 1:
             limit = 10
             
-        msg = await ctx.send(f"Pobieram historię **{limit}** ostatnich meczów gracza **{nickname}** na Faceit. Może to potrwać kilka sekund...")
+        display_name = nickname if not is_uuid(nickname) else "gracza"
+        msg = await ctx.send(f"Pobieram historię **{limit}** ostatnich meczów dla **{display_name}**. Może to potrwać kilka sekund...")
         
         gracz = await get_player_stats(nickname)
         if not gracz or gracz == "error":
@@ -480,7 +484,8 @@ class CSCommands(commands.Cog):
             return
             
         from utils.faceit_api import get_player_stats
-        msg = await ctx.send(f"Sprawdzam aktualne punkty: **{faceit_nick}**...")
+        display_name = faceit_nick if not is_uuid(faceit_nick) else "gracza"
+        msg = await ctx.send(f"Sprawdzam aktualne punkty: **{display_name}**...")
         dane = await get_player_stats(faceit_nick)
         
         if not dane or dane == "error":
@@ -528,7 +533,8 @@ class CSCommands(commands.Cog):
             return
             
         from utils.faceit_api import get_multiple_matches_stats, get_player_stats
-        msg = await ctx.send(f"Pobieram historię gier: **{faceit_nick}**...")
+        display_name = faceit_nick if not is_uuid(faceit_nick) else "gracza"
+        msg = await ctx.send(f"Pobieram historię gier: **{display_name}**...")
         gracz = await get_player_stats(faceit_nick)
         if not gracz or gracz == "error":
             await msg.edit(content=f"Brak danych o faceit: {faceit_nick}")
@@ -567,7 +573,8 @@ class CSCommands(commands.Cog):
             return
             
         from utils.faceit_api import get_map_segments, get_player_stats
-        msg = await ctx.send(f"Sprawdzam statystyki map dla gracza **{faceit_nick}**...")
+        display_name = faceit_nick if not is_uuid(faceit_nick) else "gracza"
+        msg = await ctx.send(f"Sprawdzam statystyki map dla **{display_name}**...")
         gracz = await get_player_stats(faceit_nick)
         if not gracz or gracz == "error":
             await msg.edit(content=f"Brak danych o graczu wpisanym: {faceit_nick}")

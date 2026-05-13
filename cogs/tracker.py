@@ -151,13 +151,13 @@ class TrackerCog(commands.Cog):
         import asyncio
         
         # Funkcja do szybkiego sprawdzania ID meczu
-        async def check_player_match(d_id, nickname):
+        async def check_player_match(d_id, identifier):
             # 1. Pobierz PlayerID (z cache lub API)
-            p_id = self.player_id_cache.get(nickname)
+            p_id = self.player_id_cache.get(identifier)
             if not p_id:
-                p_id = await get_player_id(nickname)
+                p_id = await get_player_id(identifier)
                 if p_id:
-                    self.player_id_cache[nickname] = p_id
+                    self.player_id_cache[identifier] = p_id
             
             if not p_id:
                 return None
@@ -179,11 +179,11 @@ class TrackerCog(commands.Cog):
                     return None # Nic się nie zmieniło, kończymy szybko
             
             # 4. Coś się zmieniło -> pobierz pełne dane (cięższe requesty)
-            gracz = await get_player_stats(nickname, lifetime=False)
+            gracz = await get_player_stats(identifier, lifetime=False)
             mecz = await get_last_match_stats(p_id)
             return {"discord_id": d_id, "gracz": gracz, "mecz": mecz}
 
-        tasks = [check_player_match(d_id, nick) for d_id, nick in ekipa.items()]
+        tasks = [check_player_match(d_id, identifier) for d_id, identifier in ekipa.items()]
         results = await asyncio.gather(*tasks)
 
         zmieniono_baze = False
@@ -415,7 +415,7 @@ class TrackerCog(commands.Cog):
         
         # --- OPTYMALIZACJA: Zrównoleglone pobieranie danych ELO ---
         import asyncio
-        tasks = [get_player_stats(nick, lifetime=False) for nick in ekipa.values()]
+        tasks = [get_player_stats(identifier, lifetime=False) for identifier in ekipa.values()]
         gracze_wyniki = await asyncio.gather(*tasks)
         
         total_elo = 0
