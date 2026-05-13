@@ -13,12 +13,10 @@ class CSCommands(commands.Cog):
 
     @commands.command(name="stats", aliases=["statystyki", "s", "fs"])
     async def sprawdz_elo(self, ctx, *args):
-        nickname = self.parse_nick(ctx, args)
+        nickname, display_name = self.parse_identifier(ctx, args)
         if not await self.check_nick(ctx, nickname, args[0] if args else None):
             return
 
-        # Wybieramy nazwę do wyświetlenia (żeby nie pokazywać UUID w wiadomości ładowania)
-        display_name = nickname if not is_uuid(nickname) else "gracza"
         msg = await ctx.send(f"Przeszukuję serwery Faceit dla **{display_name}**...")
         
         # Pobieramy dane używając naszego pliku z utils
@@ -67,11 +65,10 @@ class CSCommands(commands.Cog):
 
     @commands.command(name="last", aliases=["mecz", "l", "fl"])
     async def ostatni_mecz(self, ctx, *args):
-        nickname = self.parse_nick(ctx, args)
+        nickname, display_name = self.parse_identifier(ctx, args)
         if not await self.check_nick(ctx, nickname, args[0] if args else None):
             return
 
-        display_name = nickname if not is_uuid(nickname) else "gracza"
         msg = await ctx.send(f"Pobieram dane o ostatnim meczu dla **{display_name}**...")
         
         # Najpierw musimy pobrać player_id
@@ -368,7 +365,7 @@ class CSCommands(commands.Cog):
             else:
                 parsed_args.append(arg)
         
-        nickname = self.parse_nick(ctx, parsed_args)
+        nickname, display_name = self.parse_identifier(ctx, parsed_args)
         
         if not await self.check_nick(ctx, nickname, parsed_args[0] if parsed_args else None):
             return
@@ -379,7 +376,6 @@ class CSCommands(commands.Cog):
         elif limit < 1:
             limit = 10
             
-        display_name = nickname if not is_uuid(nickname) else "gracza"
         msg = await ctx.send(f"Pobieram historię **{limit}** ostatnich meczów dla **{display_name}**. Może to potrwać kilka sekund...")
         
         gracz = await get_player_stats(nickname)
@@ -442,7 +438,7 @@ class CSCommands(commands.Cog):
         
         await msg.edit(content=None, embed=embed)
 
-    def parse_nick(self, ctx, args, default_to_author=True):
+    def parse_identifier(self, ctx, args, default_to_author=True):
         """Pomocnik parsujący wzmianki (pingi) lub czyste nicki na nick Faceit."""
         from utils.database import wczytaj_ekipe
         ekipa = wczytaj_ekipe()
@@ -450,8 +446,9 @@ class CSCommands(commands.Cog):
         # Jeśli nic nie podano, bierzemy autora
         if not args:
             if default_to_author:
-                return ekipa.get(str(ctx.author.id))
-            return None
+                p_id = ekipa.get(str(ctx.author.id))
+                return p_id, (ctx.author.display_name if p_id else None)
+            return None, None
 
         # Pierwszy argument to zazwyczaj to, co nas interesuje
         arg = str(args[0]) if isinstance(args, (tuple, list)) else str(args)
@@ -459,11 +456,18 @@ class CSCommands(commands.Cog):
         # Sprawdzanie czy to wzmianka (ping): <@ID> lub <@!ID>
         if arg.startswith("<@") and ">" in arg:
             user_id = arg.replace("<@", "").replace("!", "").replace(">", "")
-            # Jeśli osoba ma konto - bierzemy nick. Jeśli nie - zwracamy specjalny obiekt lub None
-            return ekipa.get(user_id)
+            p_id = ekipa.get(user_id)
+            
+            # Pobieramy nazwę z Discorda do wyświetlenia
+            display_name = "wybranego gracza"
+            member = ctx.guild.get_member(int(user_id))
+            if member:
+                display_name = member.display_name
+            
+            return p_id, display_name
         
         # W przeciwnym razie traktujemy jako czysty nick Faceit
-        return arg
+        return arg, arg
 
     async def check_nick(self, ctx, nickname, original_arg=None):
         """Weryfikuje czy nick jest poprawny i wysyła jasny komunikat o błędzie pingu."""
@@ -479,12 +483,11 @@ class CSCommands(commands.Cog):
 
     @commands.command(name="elo", aliases=["e", "fe"])
     async def komenda_szybkie_elo(self, ctx, *args):
-        faceit_nick = self.parse_nick(ctx, args)
+        faceit_nick, display_name = self.parse_identifier(ctx, args)
         if not await self.check_nick(ctx, faceit_nick, args[0] if args else None):
             return
             
         from utils.faceit_api import get_player_stats
-        display_name = faceit_nick if not is_uuid(faceit_nick) else "gracza"
         msg = await ctx.send(f"Sprawdzam aktualne punkty: **{display_name}**...")
         dane = await get_player_stats(faceit_nick)
         
@@ -528,12 +531,11 @@ class CSCommands(commands.Cog):
 
     @commands.command(name="history", aliases=["hist", "historia"])
     async def komenda_historia(self, ctx, *args):
-        faceit_nick = self.parse_nick(ctx, args)
+        faceit_nick, display_name = self.parse_identifier(ctx, args)
         if not await self.check_nick(ctx, faceit_nick, args[0] if args else None):
             return
             
         from utils.faceit_api import get_multiple_matches_stats, get_player_stats
-        display_name = faceit_nick if not is_uuid(faceit_nick) else "gracza"
         msg = await ctx.send(f"Pobieram historię gier: **{display_name}**...")
         gracz = await get_player_stats(faceit_nick)
         if not gracz or gracz == "error":
@@ -568,12 +570,11 @@ class CSCommands(commands.Cog):
         
     @commands.command(name="maps", aliases=["mapy", "m"])
     async def komenda_mapy(self, ctx, *args):
-        faceit_nick = self.parse_nick(ctx, args)
+        faceit_nick, display_name = self.parse_identifier(ctx, args)
         if not await self.check_nick(ctx, faceit_nick, args[0] if args else None):
             return
             
         from utils.faceit_api import get_map_segments, get_player_stats
-        display_name = faceit_nick if not is_uuid(faceit_nick) else "gracza"
         msg = await ctx.send(f"Sprawdzam statystyki map dla **{display_name}**...")
         gracz = await get_player_stats(faceit_nick)
         if not gracz or gracz == "error":
@@ -670,13 +671,13 @@ class CSCommands(commands.Cog):
         limit = min(max(1, limit), 100)
             
         from utils.faceit_api import get_player_stats, get_multiple_matches_stats
-        nick1 = self.parse_nick(ctx, [targets[0]], default_to_author=False)
-        nick2 = self.parse_nick(ctx, [targets[1]], default_to_author=False)
+        nick1, d_name1 = self.parse_identifier(ctx, [targets[0]], default_to_author=False)
+        nick2, d_name2 = self.parse_identifier(ctx, [targets[1]], default_to_author=False)
         
-        if not nick1: nick1 = targets[0]
-        if not nick2: nick2 = targets[1]
+        if not nick1: nick1 = targets[0]; d_name1 = targets[0]
+        if not nick2: nick2 = targets[1]; d_name2 = targets[1]
         
-        msg = await ctx.send(f"⚔️ Otwieranie areny... Przygotowuję statystyki z ostatnich **{limit}** meczów dla **{nick1}** i **{nick2}**.")
+        msg = await ctx.send(f"⚔️ Otwieranie areny... Przygotowuję statystyki dla **{d_name1}** i **{d_name2}**.")
         
         g1 = await get_player_stats(nick1)
         g2 = await get_player_stats(nick2)
