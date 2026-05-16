@@ -42,9 +42,10 @@ async def on_message(message):
         return
     
     # DEBUG LOG
-    pfx = get_prefix(bot, message)
-    if message.content.startswith(pfx) or bot.user.mentioned_in(message):
-        print(f"🔍 Wykryto komendę: '{message.content}' od {message.author} (Prefix: {pfx})")
+    pfx_list = await get_prefix(bot, message)
+    if any(message.content.startswith(p) for p in pfx_list):
+        used_pfx = min(pfx_list, key=len) # Pobieramy najkrótszy (znakowy) prefix do logów
+        print(f"🔍 Wykryto komendę: '{message.content}' od {message.author} (Prefix: {used_pfx})")
     
     await bot.process_commands(message)
 
