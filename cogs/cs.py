@@ -3,9 +3,13 @@
 import discord
 from discord.ext import commands
 import typing
-from utils.faceit_api import get_player_stats, is_uuid
+from utils.faceit_api import get_player_stats, is_uuid, get_player_id
 import config
-from utils.database import wczytaj_ekipe, zapisz_ekipe, wczytaj_sezon, zapisz_sezon, get_cfg
+from utils.database import (
+    wczytaj_ekipe, zapisz_ekipe, wczytaj_sezon, zapisz_sezon, 
+    get_cfg, pobierz_historie_elo
+)
+from utils.charts import generuj_wykres_elo
 
 class CSCommands(commands.Cog):
     def __init__(self, bot):
@@ -882,6 +886,44 @@ class CSCommands(commands.Cog):
 
         embed.set_footer(text=f"Więcej pomocy pod {ctx.prefix}pomoc")
         await ctx.send(embed=embed)
+
+    @commands.command(name="wykres", aliases=["chart", "graph"])
+    async def komenda_wykres(self, ctx, *args):
+        guild_id = ctx.guild.id
+        faceit_nick, display_name = self.parse_identifier(ctx, args)
+        if not await self.check_nick(ctx, faceit_nick, args[0] if args else None):
+            return
+            
+        msg = await ctx.send(f"Generuję wykres ELO dla **{display_name}**... 📊")
+        
+        # 1. Pobieramy player_id (jeśli to nie jest już UUID)
+        p_id = await get_player_id(faceit_nick)
+        if not p_id:
+            await msg.edit(content=f"Nie znalazłem gracza: **{faceit_nick}**.")
+            return
+
+        # 2. Pobieramy historię z bazy
+        historia = pobierz_historie_elo(p_id, limit=20)
+        
+        if not historia or len(historia) < 2:
+            await msg.edit(content=f"⚠️ Za mało danych w bazie, aby wygenerować wykres dla **{display_name}**. Muszę zarejestrować co najmniej 2 mecze.")
+            return
+
+        # 3. Generujemy wykres
+        plik = generuj_wykres_elo(display_name, historia)
+        
+        if not plik:
+            await msg.edit(content="❌ Błąd podczas generowania wykresu.")
+            return
+
+        embed = discord.Embed(
+            title=f"Wykres ELO - {display_name}",
+            color=get_cfg(guild_id, "main_color", 0x2b2d31)
+        )
+        embed.set_image(url="attachment://wykres_elo.png")
+        embed.set_footer(text="Dane zbierane od momentu aktywacji monitoringu.")
+        
+        await msg.edit(content=None, embed=embed, attachments=[plik])
 
 async def setup(bot):
     await bot.add_cog(CSCommands(bot))

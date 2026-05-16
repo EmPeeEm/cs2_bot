@@ -7,7 +7,8 @@ import asyncio
 from utils.database import (
     wczytaj_ekipe, wczytaj_ustawienia, zapisz_ustawienia,
     wczytaj_ostatnie_mecze, zapisz_ostatnie_mecze,
-    wczytaj_tilt, zapisz_tilt, get_cfg, get_all_guilds_players
+    wczytaj_tilt, zapisz_tilt, get_cfg, get_all_guilds_players,
+    zapisz_historie_meczu
 )
 from utils.faceit_api import get_player_stats, get_last_match_stats, get_player_id, get_latest_match_id
 
@@ -153,12 +154,13 @@ class TrackerCog(commands.Cog):
             zapis_bazy = mecze_baza.get(p_id)
             zapisany_match_id = zapis_bazy if isinstance(zapis_bazy, str) else zapis_bazy.get("match_id") if isinstance(zapis_bazy, dict) else None
             
+            obecne_elo = int(gracz.get('elo', 0)) if str(gracz.get('elo', '')).isdigit() else 0
+            obecny_level = int(gracz.get('poziom', 0)) if str(gracz.get('poziom', '')).isdigit() else 0
+
             if zapisany_match_id != aktualny_match_id:
                 if p_id in mecze_baza:
                     stare_elo = zapis_bazy.get("elo") if isinstance(zapis_bazy, dict) else None
                     stary_level = zapis_bazy.get("poziom") if isinstance(zapis_bazy, dict) else None
-                    obecne_elo = int(gracz.get('elo', 0)) if str(gracz.get('elo', '')).isdigit() else 0
-                    obecny_level = int(gracz.get('poziom', 0)) if str(gracz.get('poziom', '')).isdigit() else 0
 
                     if stare_elo is not None and obecne_elo == stare_elo:
                         retry_count = zapis_bazy.get("retry_count", 0) if isinstance(zapis_bazy, dict) else 0
@@ -239,7 +241,14 @@ class TrackerCog(commands.Cog):
                             if alert_msg: await kanal.send(content=alert_msg)
                         except: pass
 
-                mecze_baza[p_id] = {"match_id": aktualny_match_id, "elo": int(gracz.get('elo', 0)) if str(gracz.get('elo', '')).isdigit() else 0, "poziom": int(gracz.get('poziom', 0)) if str(gracz.get('poziom', '')).isdigit() else 0}
+                mecze_baza[p_id] = {"match_id": aktualny_match_id, "elo": obecne_elo, "poziom": obecny_level}
+                
+                # ZAPIS DO HISTORII (DLA WYKRESÓW)
+                try:
+                    zapisz_historie_meczu(aktualny_match_id, p_id, mecz, obecne_elo, win)
+                except Exception as e:
+                    print(f"Błąd zapisu historii meczu: {e}")
+                
                 zmieniono_baze = True
                 
         if zmieniono_baze:

@@ -2,6 +2,7 @@
 import sqlite3
 import json
 import os
+import datetime
 import config
 
 DB_PATH = "data/cs2_stats.db"
@@ -160,3 +161,44 @@ def get_all_guilds_players():
             if p_id not in result: result[p_id] = []
             result[p_id].append((int(g_id), d_id))
         return result
+
+def zapisz_historie_meczu(match_id, player_id, stats, elo, win):
+    """Zapisuje szczegółowe statystyki meczu do bazy."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        
+        # Sprawdzamy czy mecz dla tego gracza już istnieje
+        cursor.execute("SELECT id FROM match_history WHERE match_id = ? AND player_id = ?", (match_id, player_id))
+        if cursor.fetchone():
+            return
+
+        cursor.execute('''
+            INSERT INTO match_history (
+                match_id, player_id, kills, deaths, assists, 
+                adr, hltv, hs_percent, elo_gain, current_elo, win
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            match_id, player_id, stats.get('kille', 0), stats.get('dedy', 0), stats.get('asysty', 0),
+            stats.get('adr', 0), stats.get('hltv', 0), stats.get('hs_procent', 0),
+            0, # elo_gain - na razie 0, bo wyliczamy z różnicy current_elo
+            elo, 1 if win else 0
+        ))
+        
+        # Dodajemy wpis do tabeli matches jeśli nie istnieje
+        cursor.execute("INSERT OR IGNORE INTO matches (match_id, map_name, score, match_date) VALUES (?, ?, ?, ?)",
+                       (match_id, stats.get('mapa', 'Nieznana'), stats.get('wynik', '0-0'), datetime.datetime.now()))
+        
+        conn.commit()
+
+def pobierz_historie_elo(player_id, limit=20):
+    """Pobiera historię ELO gracza do wykresu."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT current_elo, id FROM match_history 
+            WHERE player_id = ? 
+            ORDER BY id DESC LIMIT ?
+        ''', (player_id, limit))
+        rows = cursor.fetchall()
+        # Zwracamy w kolejności chronologicznej (od najstarszego do najnowszego)
+        return [row[0] for row in reversed(rows)]
