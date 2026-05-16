@@ -5,26 +5,27 @@ from discord.ext import commands
 import os
 from dotenv import load_dotenv
 from utils.database import get_cfg
+from utils.db_sqlite import init_db
 
-# Załaduj środowisko
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
 
-# Funkcja pobierająca prefix z bazy danych
-def get_prefix(bot, message):
-    return get_cfg("prefix", "!")
+async def get_prefix(bot, message):
+    guild_id = message.guild.id if message.guild else None
+    pfx = get_cfg(guild_id, "prefix", "!")
+    return commands.when_mentioned_or(pfx)(bot, message)
 
-# Skonfiguruj intencje
 intents = discord.Intents.default()
 intents.message_content = True
+intents.members = True # Na wszelki wypadek
 
 class CSBot(commands.Bot):
     def __init__(self):
         super().__init__(command_prefix=get_prefix, intents=intents, help_command=None)
 
-    # Handler ładujący wszystkie pliki z folderu cogs/
     async def setup_hook(self):
         print("Uruchamianie systemów...")
+        init_db()
         for filename in os.listdir('./cogs'):
             if filename.endswith('.py'):
                 try:
@@ -33,15 +34,26 @@ class CSBot(commands.Bot):
                 except Exception as e:
                     print(f'❌ Błąd w {filename}: {e}')
 
-# Odpalamy!
 bot = CSBot()
+
+@bot.event
+async def on_message(message):
+    if message.author.bot:
+        return
+    
+    # DEBUG LOG
+    pfx = get_prefix(bot, message)
+    if message.content.startswith(pfx) or bot.user.mentioned_in(message):
+        print(f"🔍 Wykryto komendę: '{message.content}' od {message.author} (Prefix: {pfx})")
+    
+    await bot.process_commands(message)
 
 @bot.event
 async def on_ready():
     print('-----------------------------------')
     print(f'BOT AKTYWNY: {bot.user.name}')
+    print(f'Obsługiwane serwery: {len(bot.guilds)}')
     print('-----------------------------------')
-    # Opcjonalnie: ustawiamy status bota
     await bot.change_presence(activity=discord.Game(name="Counter-Strike 2 z ziomkami"))
 
 if __name__ == '__main__':

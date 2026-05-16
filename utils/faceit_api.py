@@ -64,6 +64,8 @@ async def get_player_stats(identifier: str, lifetime: bool = True):
         "elo": cs2_dane.get("faceit_elo", "Brak"),
         "avatar_url": dane.get("avatar") or "https://i.imgur.com/vHq100B.png",
         "url_profilu": f"https://www.faceit.com/pl/players/{dane.get('nickname')}",
+        # Steam64 ID – używane przy parsowaniu demek (game_player_id w cs2)
+        "steam_id": cs2_dane.get("game_player_id"),
     }
 
     if lifetime:
@@ -142,6 +144,23 @@ async def get_last_match_stats(player_id: str):
                         "hltv": round(hltv_rating, 2)
                     }
     return None
+    
+async def get_match_details(match_id: str):
+    """Pobiera pełne szczegóły meczu (w tym URL do dema)"""
+    return await get_faceit_data(f"matches/{match_id}")
+
+async def get_demo_url(match_id: str) -> str | None:
+    """
+    Pobiera URL do pliku dema dla danego meczu.
+    Faceit dostarcza demo jako .dem.gz w polu demo_url (tablica, bierzemy pierwszy).
+    Może zwrócić None jeśli demo nie jest jeszcze gotowe.
+    """
+    details = await get_match_details(match_id)
+    if not details:
+        return None
+    urls = details.get("demo_url", [])
+    return urls[0] if urls else None
+
 
 async def get_multiple_matches_stats(player_id: str, limit: int = 30):
     historia = await get_faceit_data(f"players/{player_id}/history?game=cs2&offset=0&limit={limit}")

@@ -2,10 +2,12 @@ import discord
 from discord.ext import commands, tasks
 import config
 import random
+import datetime
+import asyncio
 from utils.database import (
     wczytaj_ekipe, wczytaj_ustawienia, zapisz_ustawienia,
     wczytaj_ostatnie_mecze, zapisz_ostatnie_mecze,
-    wczytaj_tilt, zapisz_tilt, get_cfg
+    wczytaj_tilt, zapisz_tilt, get_cfg, get_all_guilds_players
 )
 from utils.faceit_api import get_player_stats, get_last_match_stats, get_player_id, get_latest_match_id
 
@@ -20,13 +22,12 @@ class TrackerCog(commands.Cog):
         self.check_matches.cancel()
         self.update_team_elo_channel.cancel()
 
-
-
     @commands.command(name="config", aliases=["ustawienia", "settings", "cfg"])
     @commands.has_permissions(administrator=True)
     async def zarzadzaj_configiem(self, ctx, klucz: str = None, operacja: str = None, *, wartosc: str = None):
-        """Zaawansowane zarządzanie konfiguracją bota."""
-        ustawienia = wczytaj_ustawienia()
+        """Zaawansowane zarządzanie konfiguracją bota per serwer."""
+        guild_id = ctx.guild.id
+        ustawienia = wczytaj_ustawienia(guild_id)
         
         # 1. Podgląd ogólny
         if not klucz:
@@ -36,7 +37,7 @@ class TrackerCog(commands.Cog):
                             "**Klucze:** `prefix`, `tilt_limit`, `main_color`, `kanal_eventow`, `kanal_sezonu`, `kanal_podsumowan_elo`\n"
                             "**Klucze wizualne:** `level_emojis`, `level_default`\n\n"
                             f"*Zdania (_texts) edytuj bezpośrednio w config.py!*",
-                color=get_cfg("main_color", 0x2b2d31)
+                color=get_cfg(guild_id, "main_color", 0x2b2d31)
             )
             
             pola_tekstowe = ["prefix", "tilt_limit", "main_color"]
@@ -57,7 +58,6 @@ class TrackerCog(commands.Cog):
             return
 
         # 3. Standardowa zmiana (Klucz -> Wartość)
-        # Przesuwamy argumenty jeśli ktoś nie podał operacji (np. ?config prefix !)
         if operacja and not wartosc:
             wartosc = operacja
             operacja = None
@@ -69,12 +69,10 @@ class TrackerCog(commands.Cog):
                 await ctx.send(f"❌ Musisz podać wartość dla `{klucz}`.")
                 return
         else:
-            # Sanitacja ID kanałów
             if wartosc.startswith("<") and wartosc.endswith(">"):
                 for char in ["<", ">", "#", "@", "!"]:
                     wartosc = wartosc.replace(char, "")
             
-            # Konwersja kolorów HEX
             if klucz == "main_color" and wartosc.startswith("#"):
                 nowa_wartosc = int(wartosc.replace("#", ""), 16)
             elif wartosc.isdigit():
@@ -84,403 +82,218 @@ class TrackerCog(commands.Cog):
 
         stara = ustawienia.get(klucz, "Domyślna")
         ustawienia[klucz] = nowa_wartosc
-        zapisz_ustawienia(ustawienia)
+        zapisz_ustawienia(guild_id, ustawienia)
         await ctx.send(f"✅ Zmieniono `{klucz}`: `{stara}` ➔ `{nowa_wartosc}`")
 
     @commands.command(name="elo_setup")
     @commands.has_permissions(administrator=True)
     async def elo_setup(self, ctx):
         """Automatycznie tworzy kanał statystyk ze średnim ELO ekipy."""
-        ustawienia = wczytaj_ustawienia()
+        guild_id = ctx.guild.id
+        ustawienia = wczytaj_ustawienia(guild_id)
+        ekipa = wczytaj_ekipe(guild_id)
         
-        # 1. Obliczamy startowe ELO
-        ekipa = wczytaj_ekipe()
-        total_elo = 0
-        count = 0
-        for nick in ekipa.values():
-            gracz = await get_player_stats(nick)
+        if not ekipa:
+            return await ctx.send("❌ Twoja ekipa jest pusta!")
+
+        msg = await ctx.send("⏳ Obliczam średnie ELO i przygotowuję kanał...")
+        total_elo, count = 0, 0
+        for p_id in ekipa.values():
+            gracz = await get_player_stats(p_id)
             if gracz and gracz != "error" and gracz.get("elo"):
                 total_elo += int(gracz["elo"])
                 count += 1
         
         avg = round(total_elo / count, 1) if count > 0 else 0
-        
-        # 2. Uprawnienia: Widoczny dla wszystkich, brak możliwości dołączenia
         overwrites = {
             ctx.guild.default_role: discord.PermissionOverwrite(view_channel=True, connect=False),
             ctx.guild.me: discord.PermissionOverwrite(view_channel=True, connect=True, manage_channels=True)
         }
         
-        # 3. Tworzenie kanału
-        channel_name = f"Średnie ELO: {avg}"
         try:
-            new_channel = await ctx.guild.create_voice_channel(
-                name=channel_name,
-                overwrites=overwrites,
-                reason="Setup kanału statystyk ELO"
-            )
-            
+            new_channel = await ctx.guild.create_voice_channel(name=f"Średnie ELO: {avg}", overwrites=overwrites)
             ustawienia["kanal_elo"] = new_channel.id
             ustawienia["ostatnie_srednie_elo"] = avg
-            zapisz_ustawienia(ustawienia)
-            
-            await ctx.send(f"✅ Pomyślnie stworzono kanał statystyk: {new_channel.mention}\nBędzie on aktualizowany automatycznie co godzinę.")
+            zapisz_ustawienia(guild_id, ustawienia)
+            await msg.edit(content=f"✅ Stworzono kanał: {new_channel.mention}")
         except Exception as e:
-            await ctx.send(f"❌ Błąd przy tworzeniu kanału: {e}")
+            await msg.edit(content=f"❌ Błąd: {e}")
 
     @tasks.loop(minutes=0.5)
     async def check_matches(self):
-        # Czekamy, aż bot zsynchronizuje się z siecią Discord
         await self.bot.wait_until_ready()
-        
-        # Wczytujemy z bazy danych
-        ustawienia = wczytaj_ustawienia()
-        kanal_id = ustawienia.get("kanal_eventow")
-        
-        if not kanal_id:
-            return
-
-        ekipa = wczytaj_ekipe()
         mecze_baza = wczytaj_ostatnie_mecze()
         tilt_baza = wczytaj_tilt()
-        kanal = self.bot.get_channel(kanal_id)
-        
-        if not kanal:
-            return
+        all_guilds_players = get_all_guilds_players()
+        if not all_guilds_players: return
 
         import asyncio
-        
-        # Funkcja do szybkiego sprawdzania ID meczu
-        async def check_player_match(d_id, identifier):
-            # 1. Pobierz PlayerID (z cache lub API)
-            p_id = self.player_id_cache.get(identifier)
-            if not p_id:
-                p_id = await get_player_id(identifier)
-                if p_id:
-                    self.player_id_cache[identifier] = p_id
-            
-            if not p_id:
-                return None
-            
-            # 2. Pobierz ID ostatniego meczu (lekki request)
+        async def check_player_match(p_id):
             current_match_id = await get_latest_match_id(p_id)
-            if not current_match_id:
-                return None
-                
-            # 3. Sprawdź czy to nowy mecz
+            if not current_match_id: return None
             zapis_bazy = mecze_baza.get(p_id)
             saved_match_id = zapis_bazy if isinstance(zapis_bazy, str) else zapis_bazy.get("match_id") if isinstance(zapis_bazy, dict) else None
-            
             if current_match_id == saved_match_id:
-                # Jeśli ELO retry jest w toku, musimy sprawdzić pełne staty gracza
-                if isinstance(zapis_bazy, dict) and zapis_bazy.get("retry_count", 0) > 0:
-                    pass # Kontynuujemy do pełnego pobierania, by sprawdzić ELO
-                else:
-                    return None # Nic się nie zmieniło, kończymy szybko
-            
-            # 4. Coś się zmieniło -> pobierz pełne dane (cięższe requesty)
-            gracz = await get_player_stats(identifier, lifetime=False)
+                if isinstance(zapis_bazy, dict) and zapis_bazy.get("retry_count", 0) > 0: pass
+                else: return None
+            gracz = await get_player_stats(p_id, lifetime=False)
             mecz = await get_last_match_stats(p_id)
-            return {"discord_id": d_id, "gracz": gracz, "mecz": mecz}
+            return {"gracz": gracz, "mecz": mecz}
 
-        tasks = [check_player_match(d_id, identifier) for d_id, identifier in ekipa.items()]
+        tasks = [check_player_match(p_id) for p_id in all_guilds_players.keys()]
         results = await asyncio.gather(*tasks)
-
-        zmieniono_baze = False
-        zmieniono_tilt = False
+        zmieniono_baze, zmieniono_tilt = False, False
+        guilds_to_update = set()
 
         for res in results:
-            if not res or not res["mecz"]:
-                continue
-            
-            discord_id = res["discord_id"]
-            gracz = res["gracz"]
-            mecz = res["mecz"]
-                
-            # Sprawdzamy czy ten sam match id już istnieje w lokalnej bazie
-            id_gracza = gracz["player_id"]
+            if not res or not res["mecz"]: continue
+            gracz, mecz = res["gracz"], res["mecz"]
+            p_id = gracz["player_id"]
             aktualny_match_id = mecz["match_id"]
-            
-            zapis_bazy = mecze_baza.get(id_gracza)
+            zapis_bazy = mecze_baza.get(p_id)
             zapisany_match_id = zapis_bazy if isinstance(zapis_bazy, str) else zapis_bazy.get("match_id") if isinstance(zapis_bazy, dict) else None
             
-            # Główna weryfikacja
             if zapisany_match_id != aktualny_match_id:
-                # Blokujemy spam starymi meczami przy starcie programu.
-                # Pisze on powiadomienia TYLKO jeśli baza już go w ogóle zna.
-                if id_gracza in mecze_baza:
-                    # --- OBLICZENIA ELO I POZIOMÓW ---
+                if p_id in mecze_baza:
                     stare_elo = zapis_bazy.get("elo") if isinstance(zapis_bazy, dict) else None
                     stary_level = zapis_bazy.get("poziom") if isinstance(zapis_bazy, dict) else None
                     obecne_elo = int(gracz.get('elo', 0)) if str(gracz.get('elo', '')).isdigit() else 0
                     obecny_level = int(gracz.get('poziom', 0)) if str(gracz.get('poziom', '')).isdigit() else 0
 
-                    # 🕒 System opóźniający dla Faceit API (unika wysyłania powiadomień +0 ELO, jeśli Faceit jeszcze nie odświeżył ELO)
                     if stare_elo is not None and obecne_elo == stare_elo:
                         retry_count = zapis_bazy.get("retry_count", 0) if isinstance(zapis_bazy, dict) else 0
-                        if retry_count < 3: # 3 próby zapasu (ok. 6 minut)
-                            mecze_baza[id_gracza] = {
-                                "match_id": zapisany_match_id, # Zachowujemy stary match_id, by pętla uruchomiła się ponownie
-                                "elo": stare_elo,
-                                "poziom": stary_level,
-                                "retry_count": retry_count + 1
-                            }
+                        if retry_count < 3:
+                            mecze_baza[p_id] = {"match_id": zapisany_match_id, "elo": stare_elo, "poziom": stary_level, "retry_count": retry_count + 1}
                             zmieniono_baze = True
-                            continue # Pomijamy resztę w tym cyklu - spróbujemy za 2 minuty
+                            continue
 
                     win = mecz['win']
-                    # Logika Tilt-Metera
-                    stary_streak = tilt_baza.get(id_gracza, 0)
+                    stary_streak = tilt_baza.get(p_id, 0)
                     nowy_streak = (max(0, stary_streak) + 1) if win else (min(0, stary_streak) - 1)
-                    tilt_baza[id_gracza] = nowy_streak
+                    tilt_baza[p_id] = nowy_streak
                     zmieniono_tilt = True
                     
-                    tilt_limit = get_cfg("tilt_limit", 3)
-                    
-                    elo_tekst = f"**{obecne_elo}**"
-                    if stare_elo and obecne_elo > 0 and stare_elo > 0:
-                        roznica = obecne_elo - stare_elo
-                        znak = "+" if roznica > 0 else ""
-                        if roznica != 0:
-                            elo_tekst += f" *({znak}{roznica} ELO)*"
+                    guilds_to_notify = all_guilds_players.get(p_id, [])
+                    for g_id, d_id in guilds_to_notify:
+                        guilds_to_update.add(g_id)
+                        guild = self.bot.get_guild(g_id)
+                        if not guild: continue
+                        ust = wczytaj_ustawienia(g_id)
+                        kanal_id = ust.get("kanal_eventow")
+                        if not kanal_id: continue
+                        kanal = self.bot.get_channel(int(kanal_id))
+                        if not kanal: continue
 
-                    # --- LOGIKA GENEROWANIA KOMENTARZA (ALERT MSG) ---
-                    hltv = float(mecz.get('hltv', 0))
-                    ocena_tekst = "Przeciętnie"
-                    heading_roast = None
-                    
-                    # Ustalanie statusu do Embeda
-                    if hltv >= 1.30: ocena_tekst = "BESTIA"
-                    elif hltv >= 1.10: ocena_tekst = "Bardzo dobrze"
-                    elif hltv >= 0.90: ocena_tekst = "Solidnie"
-                    elif hltv >= 0.70: ocena_tekst = "Słabo"
-                    else: ocena_tekst = "BOT"
+                        tilt_limit = ust.get("tilt_limit", 3)
+                        elo_tekst = f"**{obecne_elo}**"
+                        if stare_elo and obecne_elo > 0 and stare_elo > 0:
+                            diff = obecne_elo - stare_elo
+                            elo_tekst += f" *({'+' if diff > 0 else ''}{diff} ELO)*"
 
-                    # 1. Bezwzględny priorytet: Awans / Spadek
-                    if stary_level and obecny_level != stary_level and stary_level > 0:
-                        if obecny_level > stary_level:
-                            heading_roast = random.choice(get_cfg('awans_texts', config.AWANS_TEXTS))
+                        hltv = float(mecz.get('hltv', 0))
+                        if hltv >= 1.30: ocena = "BESTIA"
+                        elif hltv >= 1.10: ocena = "Bardzo dobrze"
+                        elif hltv >= 0.90: ocena = "Solidnie"
+                        elif hltv >= 0.70: ocena = "Słabo"
+                        else: ocena = "BOT"
+
+                        heading_roast = None
+                        if stary_level and obecny_level != stary_level and stary_level > 0:
+                            if obecny_level > stary_level: heading_roast = random.choice(get_cfg(g_id, 'awans_texts', config.AWANS_TEXTS))
+                            else: heading_roast = random.choice(get_cfg(g_id, 'spadek_texts', config.SPADEK_TEXTS))
                         else:
-                            heading_roast = random.choice(get_cfg('spadek_texts', config.SPADEK_TEXTS))
-                    else:
-                        # 2. Losowanie połączone: HLTV + Streaks
-                        pula_tekstow = []
+                            pula = []
+                            if hltv >= 1.30: pula.extend(get_cfg(g_id, 'hltv_beast_texts', config.HLTV_BEAST_TEXTS))
+                            elif hltv < 0.70: pula.extend(get_cfg(g_id, 'hltv_bot_texts', config.HLTV_BOT_TEXTS))
+                            if tilt_limit and str(tilt_limit).lower() != "off" and abs(nowy_streak) >= int(tilt_limit):
+                                if nowy_streak < 0: pula.extend(get_cfg(g_id, 'lose_streak_texts', config.LOSE_STREAK_TEXTS))
+                                else: pula.extend(get_cfg(g_id, 'win_streak_texts', config.WIN_STREAK_TEXTS))
+                            if pula: heading_roast = random.choice(pula)
+
+                        details = []
+                        if stary_level and obecny_level != stary_level and stary_level > 0:
+                            details.append(f"{'wbija' if obecny_level > stary_level else 'spada na'} **{obecny_level} LEVEL**")
+                        if tilt_limit and str(tilt_limit).lower() != "off" and abs(nowy_streak) >= int(tilt_limit):
+                            details.append(f"{'wygrywa' if win else 'przegrywa'} **{abs(nowy_streak)}** mecz z rzędu")
                         
-                        # Dodajemy teksty HLTV (tylko Bestia/Bot)
-                        if hltv >= 1.30:
-                            pula_tekstow.extend(get_cfg('hltv_beast_texts', config.HLTV_BEAST_TEXTS))
-                        elif hltv < 0.70:
-                            pula_tekstow.extend(get_cfg('hltv_bot_texts', config.HLTV_BOT_TEXTS))
-                            
-                        # Dodajemy teksty serii (Streaki)
-                        if tilt_limit and str(tilt_limit).lower() != "off":
-                            limit_int = int(tilt_limit)
-                            if nowy_streak <= -limit_int:
-                                pula_tekstow.extend(get_cfg('lose_streak_texts', config.LOSE_STREAK_TEXTS))
-                            elif nowy_streak >= limit_int:
-                                pula_tekstow.extend(get_cfg('win_streak_texts', config.WIN_STREAK_TEXTS))
-                                
-                        if pula_tekstow:
-                            heading_roast = random.choice(pula_tekstow)
+                        alert_msg = f"**{heading_roast}**\n<@{d_id}> {' i '.join(details or [f'kończy z HLTV **{hltv:.2f}**'])}!" if heading_roast else None
+                        emotki = get_cfg(g_id, "level_emojis", config.LEVEL_EMOJIS)
+                        lvl_e = emotki.get(str(obecny_level), get_cfg(g_id, "level_default", config.LEVEL_DEFAULT))
 
-                    # 3. Budowanie szczegółów pingu (Body)
-                    details = []
-                    
-                    # Zmiana poziomu
-                    if stary_level and obecny_level != stary_level and stary_level > 0:
-                        type_str = "wbija" if obecny_level > stary_level else "spada na"
-                        details.append(f"{type_str} **{obecny_level} LEVEL**")
+                        embed = discord.Embed(
+                            title=f"{'WYGRANA' if win else 'PRZEGRANA'}: Mecz na {mecz['mapa']} ({mecz['wynik']})",
+                            description=f"{lvl_e} **{gracz['nick']}** | **{ocena}** (HLTV: **{hltv:.2f}**)\nBieżące punkty: {elo_tekst}",
+                            color=0x00FF00 if win else 0xFF0000
+                        )
+                        mk = []
+                        if mecz.get('triple_kills', 0) > 0: mk.append(f"3k: **{mecz['triple_kills']}**")
+                        if mecz.get('quadro_kills', 0) > 0: mk.append(f"4k: **{mecz['quadro_kills']}**")
+                        if mecz.get('penta_kills', 0) > 0: mk.append(f"**ACE**")
+                        
+                        embed.add_field(name="Rezultaty Strzeleckie", value=f"K/D/A: **{int(mecz['kille'])}/{int(mecz['dedy'])}/{int(mecz['asysty'])}**\nK/D Ratio: **{mecz['kd']}**\nEntry: **{int(mecz.get('entry_wins',0))}** ({int(mecz.get('entry_success',0))}%)\nADR: **{mecz['adr']}**{f'\nMulti: {", ".join(mk)}' if mk else ''}", inline=True)
+                        extra = f"\nSnajper: **{mecz['sniper_kills']}** killi" if mecz.get('sniper_kills', 0) >= 5 else (f"\nFlash: **{int(mecz.get('flash_success',0))}%**" if int(mecz.get('flash_success',0)) > 60 else "")
+                        embed.add_field(name="Utility i Zgranie", value=f"Headshoty: **{int(mecz['hs_procent'])}%**\nClutche: **{int(mecz.get('clutch_1v1',0)+mecz.get('clutch_1v2',0))}**\nUtility Dmg: **{int(mecz.get('ud', 0))}**\nMVPs: **{int(mecz['mvp'])}**{extra}", inline=True)
+                        embed.set_thumbnail(url=gracz['avatar_url'])
+                        try:
+                            await kanal.send(embed=embed)
+                            if alert_msg: await kanal.send(content=alert_msg)
+                        except: pass
 
-                    # Streak
-                    if tilt_limit and str(tilt_limit).lower() != "off":
-                        limit_int = int(tilt_limit)
-                        if abs(nowy_streak) >= limit_int:
-                            type_s = "wygrywa" if win else "przegrywa"
-                            details.append(f"{type_s} **{abs(nowy_streak)}** mecz z rzędu")
-
-                    # Finalny montaż - Tylko jeśli mamy jakiś powód do pingu (nagłówek)
-                    alert_msg = None
-                    if heading_roast:
-                        if not details: # Jeśli mamy roast za HLTV ale nic innego
-                            details.append(f"kończy z HLTV **{hltv:.2f}**")
-                        alert_msg = f"**{heading_roast}**\n<@{discord_id}> {' i '.join(details)}!"
-
-                    kolor = 0x00FF00 if win else 0xFF0000
-                    wynik_tekst = "WYGRANA" if win else "PRZEGRANA"
-
-                    poziom_str = str(gracz.get('poziom', '0'))
-                    emotki = get_cfg("level_emojis", config.LEVEL_EMOJIS)
-                    emotka_levelu = emotki.get(poziom_str, get_cfg("level_default", config.LEVEL_DEFAULT))
-
-                    # Tytuł zbliżony do oryginalnego
-                    embed = discord.Embed(
-                        title=f"{wynik_tekst}: Mecz na {mecz['mapa']} ({mecz['wynik']})",
-                        description=f"{emotka_levelu} **{gracz['nick']}** | **{ocena_tekst}** (HLTV: **{mecz['hltv']:.2f}**)\nBieżące punkty: {elo_tekst}",
-                        color=kolor
-                    )
-                    
-                    # Grupowanie statystyk strzeleckich (z rozszerzeniem o multi-kille i entry)
-                    mk = []
-                    if mecz.get('triple_kills', 0) > 0: mk.append(f"3k: **{mecz['triple_kills']}**")
-                    if mecz.get('quadro_kills', 0) > 0: mk.append(f"4k: **{mecz['quadro_kills']}**")
-                    if mecz.get('penta_kills', 0) > 0: mk.append(f"**ACE**")
-                    mk_text = f"\nMulti: {', '.join(mk)}" if mk else ""
-
-                    entry_rate = int(mecz.get('entry_success', 0))
-                    entry_text = f"Entry Wins: **{int(mecz.get('entry_wins', 0))}** (Skuteczność: **{entry_rate}%**)"
-
-                    embed.add_field(
-                        name="Rezultaty Strzeleckie", 
-                        value=f"K/D/A: **{int(mecz['kille'])} / {int(mecz['dedy'])} / {int(mecz['asysty'])}**\n"
-                              f"K/D Ratio: **{mecz['kd']}**\n"
-                              f"{entry_text}\n"
-                              f"ADR: **{mecz['adr']}**"
-                              f"{mk_text}", 
-                        inline=True
-                    )
-                    
-                    # Grupowanie utility (z rozszerzeniem o sniper/flash success)
-                    suma_clutches = int(mecz.get('clutch_1v1', 0) + mecz.get('clutch_1v2', 0))
-                    flash_rate = int(mecz.get('flash_success', 0))
-                    
-                    extra_stats = ""
-                    if mecz.get('sniper_kills', 0) >= 5:
-                        extra_stats = f"\nSnajper: **{mecz['sniper_kills']}** killi"
-                    elif flash_rate > 60:
-                        extra_stats = f"\nFlash Success: **{flash_rate}%**"
-
-                    embed.add_field(
-                        name="Utility i Zgranie", 
-                        value=f"Headshoty: **{int(mecz['hs_procent'])}%**\n"
-                              f"Wygrane Clutche: **{suma_clutches}**\n"
-                              f"Utility Dmg: **{int(mecz.get('ud', 0))}**\n"
-                              f"MVPs: **{int(mecz['mvp'])}**"
-                              f"{extra_stats}", 
-                        inline=True
-                    )
-                    
-                    embed.set_thumbnail(url=gracz['avatar_url'])
-                    
-                    try:
-                        # Wysyłamy kartę zawsze
-                        await kanal.send(embed=embed)
-                        # Pingujemy tylko jeśli mamy coś ważnego do powiedzenia (ekstremum, awans lub streak)
-                        if alert_msg:
-                            await kanal.send(content=alert_msg)
-                    except discord.Forbidden:
-                        pass # Brak uprawnień do postowania na danym kanale
-                    except Exception as e:
-                        print(f"⚠️ Błąd przy wysyłaniu powiadomienia trackera: {e}")
-
-                # Zapisujemy mu ten mecz jako SZERSZY SŁOWNIK
-                mecze_baza[id_gracza] = {
-                    "match_id": aktualny_match_id,
-                    "elo": int(gracz.get('elo', 0)) if str(gracz.get('elo', '')).isdigit() else 0,
-                    "poziom": int(gracz.get('poziom', 0)) if str(gracz.get('poziom', '')).isdigit() else 0
-                }
+                mecze_baza[p_id] = {"match_id": aktualny_match_id, "elo": int(gracz.get('elo', 0)) if str(gracz.get('elo', '')).isdigit() else 0, "poziom": int(gracz.get('poziom', 0)) if str(gracz.get('poziom', '')).isdigit() else 0}
                 zmieniono_baze = True
                 
         if zmieniono_baze:
             zapisz_ostatnie_mecze(mecze_baza)
-            # Odświeżamy tabelę sezonową na żywo
             season_cog = self.bot.get_cog("SeasonUICog")
             if season_cog:
-                await season_cog.update_live_leaderboard()
-                
-        if zmieniono_tilt:
-            zapisz_tilt(tilt_baza)
+                for g_id in guilds_to_update: await season_cog.update_live_leaderboard(g_id)
+        if zmieniono_tilt: zapisz_tilt(tilt_baza)
 
     @tasks.loop(hours=1.0)
     async def update_team_elo_channel(self):
-        """Raz na godzinę aktualizuje nazwę kanału ze średnim ELO ekipy."""
         await self.bot.wait_until_ready()
-        
-        ustawienia = wczytaj_ustawienia()
-        kanal_id = ustawienia.get("kanal_elo")
-        if not kanal_id:
-            return
-            
-        kanal = self.bot.get_channel(int(kanal_id))
-        if not kanal:
-            # Może to kanał głosowy, który wymaga fetchowania?
-            try:
-                kanal = await self.bot.fetch_channel(int(kanal_id))
-            except:
-                return
-
-        if not kanal:
-            return
-            
-        ekipa = wczytaj_ekipe()
-        
-        # --- OPTYMALIZACJA: Zrównoleglone pobieranie danych ELO ---
-        import asyncio
-        tasks = [get_player_stats(identifier, lifetime=False) for identifier in ekipa.values()]
-        gracze_wyniki = await asyncio.gather(*tasks)
-        
-        total_elo = 0
-        count = 0
-        
-        for gracz in gracze_wyniki:
-            if gracz and gracz != "error" and gracz.get("elo"):
-                try:
-                    total_elo += int(gracz["elo"])
-                    count += 1
-                except:
-                    continue
-        
-        if count == 0:
-            return
-            
-        current_avg = round(total_elo / count, 1)
-        
-        import datetime
         now = datetime.datetime.now()
         aktualny_tydzien = f"{now.isocalendar()[0]}-W{now.isocalendar()[1]}"
-        
-        last_avg = ustawienia.get("ostatnie_srednie_elo", current_avg)
-        zapisany_tydzien = ustawienia.get("ostatni_tydzien_resetu", "")
-        
-        if zapisany_tydzien and aktualny_tydzien != zapisany_tydzien:
-            diff = round(current_avg - last_avg, 1)
-            znak = "+" if diff > 0 else ""
-            
-            kanal_podsumowan_id = ustawienia.get("kanal_podsumowan_elo")
-            if kanal_podsumowan_id:
-                try:
-                    kanal_podsumowan = self.bot.get_channel(int(kanal_podsumowan_id))
-                    if kanal_podsumowan:
-                        embed = discord.Embed(
-                            title="📅 Tygodniowe Podsumowanie Średniego ELO",
-                            description=f"Średnie ELO ekipy w tym tygodniu zmieniło się o: **{znak}{diff}**!\nAktualna średnia wynosi: **{current_avg}**.",
-                            color=get_cfg("main_color", 0x2b2d31)
-                        )
-                        await kanal_podsumowan.send(embed=embed)
-                except Exception as e:
-                    print(f"⚠️ Błąd przy wysyłaniu podsumowania tygodniowego ELO: {e}")
-            
-            last_avg = current_avg
-            ustawienia["ostatnie_srednie_elo"] = current_avg
-            ustawienia["ostatni_tydzien_resetu"] = aktualny_tydzien
-            zapisz_ustawienia(ustawienia)
-        elif not zapisany_tydzien:
-            ustawienia["ostatni_tydzien_resetu"] = aktualny_tydzien
-            zapisz_ustawienia(ustawienia)
-            
-        # Obliczanie różnicy (od początku tygodnia)
-        diff = round(current_avg - last_avg, 1)
-        znak = "+" if diff > 0 else ""
-        diff_text = f" ({znak}{diff})" if diff != 0 else ""
-        
-        new_name = f"Średnie ELO: {current_avg}{diff_text}"
-        
-        # Discord ma limit zmian nazw kanałów (ok. 2 na 10 min), raz na godzinę jest super bezpieczne
-        try:
-            # Porównujemy z aktualną nazwą, żeby nie marnować API jeśli nic się nie zmieniło
-            if kanal.name != new_name:
-                await kanal.edit(name=new_name)
-        except Exception as e:
-            print(f"⚠️ Błąd aktualizacji nazwy kanału ELO: {e}")
+        for guild in self.bot.guilds:
+            try:
+                guild_id = guild.id
+                ust = wczytaj_ustawienia(guild_id)
+                k_id = ust.get("kanal_elo")
+                if not k_id or not str(k_id).isdigit(): continue
+                k = self.bot.get_channel(int(k_id)) or await self.bot.fetch_channel(int(k_id))
+                if not k: continue
+                ekipa = wczytaj_ekipe(guild_id)
+                if not ekipa: continue
+                tasks = [get_player_stats(p_id, lifetime=False) for p_id in ekipa.values()]
+                results = await asyncio.gather(*tasks)
+                total, count = 0, 0
+                for g in results:
+                    if g and g != "error" and g.get("elo"):
+                        total += int(g["elo"]); count += 1
+                if count == 0: continue
+                curr_avg = round(total / count, 1)
+                last_avg = ust.get("ostatnie_srednie_elo", curr_avg)
+                z_tydzien = ust.get("ostatni_tydzien_resetu", "")
+                if z_tydzien and aktualny_tydzien != z_tydzien:
+                    diff = round(curr_avg - last_avg, 1)
+                    k_p_id = ust.get("kanal_podsumowan_elo")
+                    if k_p_id:
+                        k_p = self.bot.get_channel(int(k_p_id))
+                        if k_p:
+                            e = discord.Embed(title="📅 Tygodniowe Podsumowanie Średniego ELO", description=f"Zmiana: **{'+' if diff > 0 else ''}{diff}**!\nAktualna średnia: **{curr_avg}**.", color=get_cfg(guild_id, "main_color", 0x2b2d31))
+                            await k_p.send(embed=e)
+                    last_avg = curr_avg
+                    ust["ostatnie_srednie_elo"] = curr_avg
+                    ust["ostatni_tydzien_resetu"] = aktualny_tydzien
+                    zapisz_ustawienia(guild_id, ust)
+                elif not z_tydzien:
+                    ust["ostatni_tydzien_resetu"] = aktualny_tydzien
+                    zapisz_ustawienia(guild_id, ust)
+                diff = round(curr_avg - last_avg, 1)
+                new_name = f"Średnie ELO: {curr_avg}{f' ({"+" if diff > 0 else ""}{diff})' if diff != 0 else ''}"
+                if k.name != new_name: await k.edit(name=new_name)
+            except (discord.Forbidden, discord.NotFound, discord.HTTPException):
+                continue
 
 async def setup(bot):
     await bot.add_cog(TrackerCog(bot))

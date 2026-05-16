@@ -13,7 +13,6 @@ class CSCommands(commands.Cog):
 
     @commands.command(name="stats", aliases=["statystyki", "s", "fs"])
     async def sprawdz_elo(self, ctx, *args):
-        guild_id = ctx.guild.id
         nickname, display_name = self.parse_identifier(ctx, args)
         if not await self.check_nick(ctx, nickname, args[0] if args else None):
             return
@@ -34,15 +33,15 @@ class CSCommands(commands.Cog):
         embed = discord.Embed(
             title=f"Statystyki FACEIT - {dane['nick']}",
             url=dane['url_profilu'],
-            color=get_cfg(guild_id, "main_color", 0x2b2d31)
+            color=get_cfg("main_color", 0x2b2d31)
         )
         embed.set_thumbnail(url=dane['avatar_url'])
         # Wyciągamy level gracza jako tekst (np. "8")
         poziom = str(dane['poziom'])
         
         # Szukamy emotki w configu.
-        emotki = get_cfg(guild_id, "level_emojis", config.LEVEL_EMOJIS)
-        emotka_levelu = emotki.get(poziom, get_cfg(guild_id, "level_default", config.LEVEL_DEFAULT))
+        emotki = get_cfg("level_emojis", config.LEVEL_EMOJIS)
+        emotka_levelu = emotki.get(poziom, get_cfg("level_default", config.LEVEL_DEFAULT))
 
         embed.description = f"{emotka_levelu} **{dane['elo']} ELO**  |  Rozegrane Mecze: **{dane['lifetime_matches']}**"
         
@@ -66,7 +65,6 @@ class CSCommands(commands.Cog):
 
     @commands.command(name="last", aliases=["mecz", "l", "fl"])
     async def ostatni_mecz(self, ctx, *args):
-        guild_id = ctx.guild.id
         nickname, display_name = self.parse_identifier(ctx, args)
         if not await self.check_nick(ctx, nickname, args[0] if args else None):
             return
@@ -92,8 +90,8 @@ class CSCommands(commands.Cog):
         wynik_tekst = "WYGRANA" if mecz['win'] else "PRZEGRANA"
         
         poziom = str(gracz['poziom'])
-        emotki = get_cfg(guild_id, "level_emojis", config.LEVEL_EMOJIS)
-        emotka_levelu = emotki.get(poziom, get_cfg(guild_id, "level_default", config.LEVEL_DEFAULT))
+        emotki = get_cfg("level_emojis", config.LEVEL_EMOJIS)
+        emotka_levelu = emotki.get(poziom, get_cfg("level_default", config.LEVEL_DEFAULT))
 
         embed = discord.Embed(
             title=f"Ostatni mecz: {gracz['nick']} — {wynik_tekst}",
@@ -147,14 +145,13 @@ class CSCommands(commands.Cog):
 
     @commands.command(name="top", aliases=["leaderboard", "ranking"])
     async def tablica_wynikow(self, ctx):
-        guild_id = ctx.guild.id
         # Ta komenda musi sprawdzić kilka osób, więc zajmie botowi sekundę lub dwie
         msg = await ctx.send("Zbieram dane z serwerów Faceit... (to potrwa chwilę)")
         
         # (NOWY KOD)
-        ekipa = wczytaj_ekipe(guild_id)
+        ekipa = wczytaj_ekipe()
         
-        sezon = wczytaj_sezon(guild_id)
+        sezon = wczytaj_sezon()
         sezon_aktywny = "nazwa" in sezon
         
         if not ekipa:
@@ -163,8 +160,8 @@ class CSCommands(commands.Cog):
 
         import asyncio
         tasks = []
-        for discord_id, p_id in ekipa.items():
-            tasks.append(get_player_stats(p_id, lifetime=False))
+        for discord_id, nick in ekipa.items():
+            tasks.append(get_player_stats(nick, lifetime=False))
         
         results = await asyncio.gather(*tasks)
         
@@ -183,7 +180,7 @@ class CSCommands(commands.Cog):
         # Tworzymy ładną ramkę
         embed = discord.Embed(
             title=f"Ranking Ekipy - {sezon['nazwa'] if sezon_aktywny else 'FACEIT'}",
-            color=get_cfg(guild_id, "main_color", 0x2b2d31)
+            color=get_cfg("main_color", 0x2b2d31)
         )
 
         opis = ""
@@ -200,8 +197,8 @@ class CSCommands(commands.Cog):
                 pozycja = f"**{i}.**"
 
             poziom = str(gracz['poziom'])
-            emotki = get_cfg(guild_id, "level_emojis", config.LEVEL_EMOJIS)
-            emotka_levelu = emotki.get(poziom, get_cfg(guild_id, "level_default", config.LEVEL_DEFAULT))
+            emotki = get_cfg("level_emojis", config.LEVEL_EMOJIS)
+            emotka_levelu = emotki.get(poziom, get_cfg("level_default", config.LEVEL_DEFAULT))
             
             # Wrzucamy emotkę poziomu przed napisem ELO
             # Pinguje subtelnie bez wzmianki glownej (tylko wyswietla w Embedzie imie jako @DiscordUser)
@@ -230,10 +227,9 @@ class CSCommands(commands.Cog):
     async def zestawienie_passy(self, ctx):
         """Wyświetla aktualne serie zwycięstw/porażek dla całej ekipy."""
         from utils.database import wczytaj_tilt
-        guild_id = ctx.guild.id
         msg = await ctx.send("Sprawdzam, kto dzisiaj carruje, a kto sabotuje... 🔍")
         
-        ekipa = wczytaj_ekipe(guild_id)
+        ekipa = wczytaj_ekipe()
         tilt_baza = wczytaj_tilt()
         
         if not ekipa:
@@ -243,8 +239,8 @@ class CSCommands(commands.Cog):
         import asyncio
         tasks = []
         ekipa_ids = list(ekipa.keys())
-        for p_id in ekipa.values():
-            tasks.append(get_player_stats(p_id, lifetime=False))
+        for nick in ekipa.values():
+            tasks.append(get_player_stats(nick, lifetime=False))
             
         results = await asyncio.gather(*tasks)
 
@@ -265,7 +261,7 @@ class CSCommands(commands.Cog):
         embed = discord.Embed(
             title="🔥 Termometr Ekipy — Serie Gier",
             description="Zestawienie aktualnych serii zwycięstw i porażek w bieżącej sesji.",
-            color=get_cfg(guild_id, "main_color", 0x2b2d31)
+            color=get_cfg("main_color", 0x2b2d31)
         )
 
         opis = ""
@@ -289,7 +285,6 @@ class CSCommands(commands.Cog):
 
     @commands.command(name="polacz", aliases=["link", "ln"])
     async def polacz_konto(self, ctx, *args):
-        guild_id = ctx.guild.id
         if not args:
             await ctx.send(f"Podaj nick Faceit! Użycie: `{ctx.prefix}polacz [nick]` lub `{ctx.prefix}polacz @Ktoś [nick]`.")
             return
@@ -312,10 +307,10 @@ class CSCommands(commands.Cog):
             await ctx.send("Zabrakło nazwy gracza z Faceit!")
             return
 
-        ekipa = wczytaj_ekipe(guild_id)
+        ekipa = wczytaj_ekipe()
         
         if discord_id in ekipa and not ctx.message.mentions:
-            await ctx.send(f"Masz już połączone konto. Użycie: `{ctx.prefix}polacz @Ktoś [nick]`.")
+            await ctx.send(f"Masz już połączone konto: **{ekipa[discord_id]}**. Użyj `{ctx.prefix}un` by je odłączyć.")
             return
 
         msg = await ctx.send(f"Łączę profil <@{discord_id}> z kontem Faceit: **{faceit_nick}**...")
@@ -328,10 +323,10 @@ class CSCommands(commands.Cog):
 
         player_id = test['player_id']
         ekipa[discord_id] = player_id
-        zapisz_ekipe(guild_id, ekipa)
+        zapisz_ekipe(ekipa)
         
         # WPISANIE DO TRWAJĄCEGO SEZONU (Zabezpiecza przed omijaniem late-joinerów)
-        sezon = wczytaj_sezon(guild_id)
+        sezon = wczytaj_sezon()
         if "nazwa" in sezon and str(test.get('elo', 'Brak')).isdigit():
             player_id = str(test['player_id'])
             if "start_elo" not in sezon:
@@ -339,14 +334,13 @@ class CSCommands(commands.Cog):
                 
             if player_id not in sezon["start_elo"]:
                 sezon["start_elo"][player_id] = int(test['elo'])
-                zapisz_sezon(guild_id, sezon)
+                zapisz_sezon(sezon)
                 
         await msg.edit(content=f"<@{discord_id}> pomyślnie powiązano z kontem **{faceit_nick}** na Faceit.")
 
     @commands.command(name="odlacz", aliases=["unlink", "un"])
     async def odlacz_konto(self, ctx, *args):
-        guild_id = ctx.guild.id
-        ekipa = wczytaj_ekipe(guild_id)
+        ekipa = wczytaj_ekipe()
         
         discord_id = str(ctx.author.id)
         if ctx.message.mentions:
@@ -354,14 +348,13 @@ class CSCommands(commands.Cog):
             
         if discord_id in ekipa:
             usuniony = ekipa.pop(discord_id)
-            zapisz_ekipe(guild_id, ekipa)
-            await ctx.send(f"Odlączono powiązanie z profilu <@{discord_id}>.")
+            zapisz_ekipe(ekipa)
+            await ctx.send(f"Odlączono powiązanie z kontem Faceit: **{usuniony}** z profilu <@{discord_id}>.")
         else:
             await ctx.send(f"Ten profil nie ma obecnie podpiętego konta Faceit.")
 
     @commands.command(name="recent", aliases=["ostatnie", "r", "fr"])
     async def komenda_stats(self, ctx, *args):
-        guild_id = ctx.guild.id
         limit = 20
         
         # Logika wyciągania limitu i nicku z args
@@ -416,8 +409,8 @@ class CSCommands(commands.Cog):
         kolor = 0x00FF00 if wr >= 50 else 0xFF0000
 
         poziom = str(gracz['poziom'])
-        emotki = get_cfg(guild_id, "level_emojis", config.LEVEL_EMOJIS)
-        emotka_levelu = emotki.get(poziom, get_cfg(guild_id, "level_default", config.LEVEL_DEFAULT))
+        emotki = get_cfg("level_emojis", config.LEVEL_EMOJIS)
+        emotka_levelu = emotki.get(poziom, get_cfg("level_default", config.LEVEL_DEFAULT))
 
         embed = discord.Embed(
             title=f"Seria Ostatnich {len(mecze)} Spotkań - {gracz['nick']}",
@@ -448,7 +441,7 @@ class CSCommands(commands.Cog):
     def parse_identifier(self, ctx, args, default_to_author=True):
         """Pomocnik parsujący wzmianki (pingi) lub czyste nicki na nick Faceit."""
         from utils.database import wczytaj_ekipe
-        ekipa = wczytaj_ekipe(ctx.guild.id)
+        ekipa = wczytaj_ekipe()
         
         # Jeśli nic nie podano, bierzemy autora
         if not args:
@@ -490,7 +483,6 @@ class CSCommands(commands.Cog):
 
     @commands.command(name="elo", aliases=["e", "fe"])
     async def komenda_szybkie_elo(self, ctx, *args):
-        guild_id = ctx.guild.id
         faceit_nick, display_name = self.parse_identifier(ctx, args)
         if not await self.check_nick(ctx, faceit_nick, args[0] if args else None):
             return
@@ -523,11 +515,11 @@ class CSCommands(commands.Cog):
             kolor = 0xFFD700
         else:
             opis = f"🟢 **{do_awansu} ELO** brakuje do wyższego poziomu.\n🔴 **{do_spadku} ELO** zapasu przed spadkiem."
-            kolor = 0xFFA500 if do_spadku < 15 else get_cfg(guild_id, "main_color", 0x2b2d31)
+            kolor = 0xFFA500 if do_spadku < 15 else get_cfg("main_color", 0x2b2d31)
             
         poziom = str(dane['poziom'])
-        emotki = get_cfg(guild_id, "level_emojis", config.LEVEL_EMOJIS)
-        emotka_levelu = emotki.get(poziom, get_cfg(guild_id, "level_default", config.LEVEL_DEFAULT))
+        emotki = get_cfg("level_emojis", config.LEVEL_EMOJIS)
+        emotka_levelu = emotki.get(poziom, get_cfg("level_default", config.LEVEL_DEFAULT))
         
         embed = discord.Embed(
             title=f"Błyskawiczne ELO: {dane['nick']}",
@@ -539,7 +531,6 @@ class CSCommands(commands.Cog):
 
     @commands.command(name="history", aliases=["hist", "historia"])
     async def komenda_historia(self, ctx, *args):
-        guild_id = ctx.guild.id
         faceit_nick, display_name = self.parse_identifier(ctx, args)
         if not await self.check_nick(ctx, faceit_nick, args[0] if args else None):
             return
@@ -560,7 +551,7 @@ class CSCommands(commands.Cog):
             title=f"Dziennik Spotkań", 
             description=f"Profil operacyjny: **{gracz['nick']}**\n"
                         f"Raport z {len(mecze)} ostatnich gier", 
-            color=get_cfg(guild_id, "main_color", 0x2b2d31)
+            color=get_cfg("main_color", 0x2b2d31)
         )
         for i, mecz in enumerate(mecze, 1):
             rezultat = "🟩 Wygrana" if mecz['win'] else "🟥 Porażka"
@@ -579,7 +570,6 @@ class CSCommands(commands.Cog):
         
     @commands.command(name="maps", aliases=["mapy", "m"])
     async def komenda_mapy(self, ctx, *args):
-        guild_id = ctx.guild.id
         faceit_nick, display_name = self.parse_identifier(ctx, args)
         if not await self.check_nick(ctx, faceit_nick, args[0] if args else None):
             return
@@ -632,7 +622,7 @@ class CSCommands(commands.Cog):
         embed = discord.Embed(
             title="Analityka Map Turniejowych (Dashboard)",
             description=f"Szczegółowa wydajność operacyjna dla: **{gracz['nick']}**",
-            color=get_cfg(guild_id, "main_color", 0x2b2d31)
+            color=get_cfg("main_color", 0x2b2d31)
         )
         
         for m in mapy_pool:
@@ -663,7 +653,6 @@ class CSCommands(commands.Cog):
         
     @commands.command(name="compare", aliases=["porownaj", "c", "1v1", "arena"])
     async def komenda_compare(self, ctx, *args):
-        guild_id = ctx.guild.id
         limit = 10
         targets = []
         
@@ -728,9 +717,9 @@ class CSCommands(commands.Cog):
 
         # Pobranie emotek poziomów
         import config
-        emotki = get_cfg(guild_id, "level_emojis", config.LEVEL_EMOJIS)
+        emotki = get_cfg("level_emojis", config.LEVEL_EMOJIS)
         def get_lvl_emoji(lvl):
-            return emotki.get(str(lvl), get_cfg(guild_id, "level_default", config.LEVEL_DEFAULT))
+            return emotki.get(str(lvl), get_cfg("level_default", config.LEVEL_DEFAULT))
 
         emoji1 = get_lvl_emoji(g1['poziom'])
         emoji2 = get_lvl_emoji(g2['poziom'])
@@ -751,7 +740,7 @@ class CSCommands(commands.Cog):
         embed = discord.Embed(
             title=f"⚔️ ARENA: {g1['nick']} vs {g2['nick']}",
             description=f"Bezpośrednie starcie na podstawie ostatnich **{len(m1)}** meczów.",
-            color=get_cfg(guild_id, "main_color", 0x2b2d31)
+            color=get_cfg("main_color", 0x2b2d31)
         )
         
         # Sekcja ELO
@@ -784,7 +773,6 @@ class CSCommands(commands.Cog):
     @commands.command(name="pomoc", aliases=["komendy", "help"])
     async def komenda_pomoc(self, ctx, command_name: str = None):
         """Dynamiczny system pomocy z obsługą szczegółów."""
-        guild_id = ctx.guild.id
         if not command_name:
             # GŁÓWNY WIDOK POMOCY
             embed = discord.Embed(
@@ -792,7 +780,7 @@ class CSCommands(commands.Cog):
                 description=(f"Bot pozwala na monitorowanie postępów i statystyk Faceit.\n"
                              f"Użyj `{ctx.prefix}pomoc [nazwa]` aby zobaczyć szczegóły komendy.\n\n"
                              f"Większość komend obsługuje **ping gracza** (np. `{ctx.prefix}stats @Gracz`)."),
-                color=get_cfg(guild_id, "main_color", 0x2b2d31)
+                color=get_cfg("main_color", 0x2b2d31)
             )
             
             embed.add_field(
@@ -869,7 +857,7 @@ class CSCommands(commands.Cog):
         embed = discord.Embed(
             title=f"📖 Komenda: {ctx.prefix}{name}",
             description=desc,
-            color=get_cfg(guild_id, "main_color", 0x2b2d31)
+            color=get_cfg("main_color", 0x2b2d31)
         )
         
         embed.add_field(name="💡 Użycie", value=f"`{ctx.prefix}{name} {usage}`", inline=False)

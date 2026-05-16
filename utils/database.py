@@ -1,118 +1,162 @@
 # utils/database.py
-
+import sqlite3
 import json
 import os
+import config
 
-# Utworzenie folderu na dane
-os.makedirs("data", exist_ok=True)
+DB_PATH = "data/cs2_stats.db"
 
-# Ścieżka do naszego pliku z danymi (stworzy się sam!)
-PLIK_BORY = "data/ekipa.json"
-PLIK_USTAWIEN = "data/ustawienia.json"
-PLIK_MECZE = "data/mecze.json"
-PLIK_SEZONU = "data/sezon.json"
-PLIK_TILTU = "data/tilt.json"
-PLIK_ARCHIWUM = "data/archiwum_sezonow.json"
+def get_connection():
+    return sqlite3.connect(DB_PATH)
 
-def wczytaj_ekipe():
-    """Zwraca słownik powiązań np. {"12345678": "s1mple"}. Zwraca puste {} jeśli jest to stary format."""
-    if not os.path.exists(PLIK_BORY):
-        return {}
+def wczytaj_ekipe(guild_id):
+    """Pobiera listę graczy (Discord ID -> Faceit ID) dla danej gildii."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('SELECT discord_id, player_id FROM guild_players WHERE guild_id = ?', (str(guild_id),))
+        return {row[0]: row[1] for row in cursor.fetchall()}
+
+def zapisz_ekipe(guild_id, ekipa):
+    """Zapisuje listę graczy dla danej gildii."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM guild_players WHERE guild_id = ?', (str(guild_id),))
+        for d_id, p_id in ekipa.items():
+            cursor.execute('INSERT INTO guild_players (guild_id, discord_id, player_id) VALUES (?, ?, ?)', (str(guild_id), d_id, p_id))
+        conn.commit()
+
+def wczytaj_ustawienia(guild_id):
+    """Pobiera ustawienia serwera."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('SELECT key, value FROM settings WHERE guild_id = ?', (str(guild_id),))
+        rows = cursor.fetchall()
+        ustawienia = {}
+        for k, v in rows:
+            try:
+                ustawienia[k] = json.loads(v)
+            except:
+                ustawienia[k] = v
+        return ustawienia
+
+def zapisz_ustawienia(guild_id, dane):
+    """Zapisuje ustawienia serwera."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        for k, v in dane.items():
+            cursor.execute('''
+                INSERT OR REPLACE INTO settings (guild_id, key, value) 
+                VALUES (?, ?, ?)
+            ''', (str(guild_id), k, json.dumps(v)))
+        conn.commit()
+
+def get_cfg(guild_id, klucz, domyslna=None):
+    """Pobiera ustawienie per serwer, lub globalne z config.py."""
+    GLOBAL_ONLY = ["level_emojis", "level_default"]
+    val = domyslna
     
-    with open(PLIK_BORY, "r", encoding="utf-8") as f:
+    if guild_id and klucz not in GLOBAL_ONLY:
+        ustawienia = wczytaj_ustawienia(guild_id)
+        if klucz in ustawienia:
+            val = ustawienia[klucz]
+        else:
+            try:
+                val = getattr(config, klucz.upper(), domyslna)
+            except:
+                val = domyslna
+    else:
         try:
-            dane = json.load(f)
-            gracze = dane.get("gracze", {})
-            if isinstance(gracze, list):
-                # Stara lista - uznajemy za czystą by zaczeli od nowa.
-                return {}
-            return gracze
-        except Exception:
-            return {}
+            val = getattr(config, klucz.upper(), domyslna)
+        except:
+            val = domyslna
 
-def zapisz_ekipe(slownik_graczy):
-    """Zapisuje zaktualizowany słownik do pliku JSON."""
-    with open(PLIK_BORY, "w", encoding="utf-8") as f:
-        json.dump({"gracze": slownik_graczy}, f, indent=4)
-
-def wczytaj_ustawienia():
-    if not os.path.exists(PLIK_USTAWIEN):
-        return {}
-    with open(PLIK_USTAWIEN, "r", encoding="utf-8") as f:
+    # ZABEZPIECZENIE DLA KOLORÓW: Jeśli kolor jest stringiem (np. "0xffffff" lub "#ffffff"), zamień na int
+    if klucz == "main_color" and isinstance(val, str):
         try:
-            return json.load(f)
-        except Exception:
-            return {}
-
-def zapisz_ustawienia(dane):
-    with open(PLIK_USTAWIEN, "w", encoding="utf-8") as f:
-        json.dump(dane, f, indent=4)
+            if val.startswith("#"):
+                return int(val.replace("#", ""), 16)
+            return int(val, 16) if val.startswith("0x") else int(val)
+        except:
+            return 0x2b2d31 # Domyślny kolor w razie błędu
+            
+    return val
 
 def wczytaj_ostatnie_mecze():
-    if not os.path.exists(PLIK_MECZE):
-        return {}
-    with open(PLIK_MECZE, "r", encoding="utf-8") as f:
-        try:
-            return json.load(f)
-        except Exception:
-            return {}
+    """Pobiera globalny stan ostatnio sprawdzonych meczów."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT player_id, match_id, elo, poziom, retry_count FROM last_match_state")
+        rows = cursor.fetchall()
+        return {row[0]: {"match_id": row[1], "elo": row[2], "poziom": row[3], "retry_count": row[4]} for row in rows}
 
 def zapisz_ostatnie_mecze(dane):
-    with open(PLIK_MECZE, "w", encoding="utf-8") as f:
-        json.dump(dane, f, indent=4)
-
-def wczytaj_sezon():
-    if not os.path.exists(PLIK_SEZONU):
-        return {}
-    with open(PLIK_SEZONU, "r", encoding="utf-8") as f:
-        try:
-            return json.load(f)
-        except Exception:
-            return {}
-
-def zapisz_sezon(dane):
-    with open(PLIK_SEZONU, "w", encoding="utf-8") as f:
-        json.dump(dane, f, indent=4)
+    """Zapisuje globalny stan meczów."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        for p_id, val in dane.items():
+            if isinstance(val, dict):
+                cursor.execute('''
+                    INSERT OR REPLACE INTO last_match_state (player_id, match_id, elo, poziom, retry_count) 
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (p_id, val.get('match_id'), val.get('elo'), val.get('poziom'), val.get('retry_count', 0)))
+            else:
+                cursor.execute('INSERT OR REPLACE INTO last_match_state (player_id, match_id) VALUES (?, ?)', (p_id, val))
+        conn.commit()
 
 def wczytaj_tilt():
-    if not os.path.exists(PLIK_TILTU):
-        return {}
-    with open(PLIK_TILTU, "r", encoding="utf-8") as f:
-        try:
-            return json.load(f)
-        except Exception:
-            return {}
+    """Pobiera globalny stan serii (Streaki)."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT player_id, current_streak FROM streaks")
+        return {row[0]: row[1] for row in cursor.fetchall()}
 
 def zapisz_tilt(dane):
-    with open(PLIK_TILTU, "w", encoding="utf-8") as f:
-        json.dump(dane, f, indent=4)
+    """Zapisuje globalny stan serii."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        for p_id, val in dane.items():
+            cursor.execute("INSERT OR REPLACE INTO streaks (player_id, current_streak) VALUES (?, ?)", (p_id, val))
+        conn.commit()
 
-def wczytaj_archiwum_sezonow():
-    if not os.path.exists(PLIK_ARCHIWUM):
-        return []
-    with open(PLIK_ARCHIWUM, "r", encoding="utf-8") as f:
-        try:
-            return json.load(f)
-        except Exception:
-            return []
+def wczytaj_sezon(guild_id):
+    """Pobiera dane aktywnego sezonu gildii."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT name, start_elo, archive_data FROM seasons WHERE guild_id = ? AND is_active = 1", (str(guild_id),))
+        row = cursor.fetchone()
+        if not row: return {}
+        return {
+            "nazwa": row[0],
+            "start_elo": json.loads(row[1]) if row[1] else {},
+            "archive": json.loads(row[2]) if row[2] else {}
+        }
 
-def zapisz_archiwum_sezonow(dane):
-    with open(PLIK_ARCHIWUM, "w", encoding="utf-8") as f:
-        json.dump(dane, f, indent=4)
+def zapisz_sezon(guild_id, dane):
+    """Zapisuje dane sezonu gildii."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        # Najpierw sprawdzamy czy sezon już istnieje
+        cursor.execute("SELECT id FROM seasons WHERE guild_id = ? AND is_active = 1", (str(guild_id),))
+        exists = cursor.fetchone()
+        
+        name = dane.get("nazwa", "Nowy Sezon")
+        start_elo = json.dumps(dane.get("start_elo", {}))
+        archive = json.dumps(dane.get("archive", {}))
+        
+        if exists:
+            cursor.execute("UPDATE seasons SET name = ?, start_elo = ?, archive_data = ? WHERE id = ?", (name, start_elo, archive, exists[0]))
+        else:
+            cursor.execute("INSERT INTO seasons (guild_id, name, is_active, start_elo, archive_data) VALUES (?, ?, 1, ?, ?)", (str(guild_id), name, start_elo, archive))
+        conn.commit()
 
-def get_cfg(klucz, domyslna=None):
-    """
-    Pobiera wartość z ustawienia.json, a jeśli nie istnieje, 
-    próbuje pobrać ją z config.py lub zwraca domyslna.
-    """
-    from utils.database import wczytaj_ustawienia
-    ustawienia = wczytaj_ustawienia()
-    if klucz in ustawienia:
-        return ustawienia[klucz]
-    
-    # Próba pobrania z config.py (import wewnątrz by uniknąć cykli)
-    try:
-        import config
-        return getattr(config, klucz.upper(), domyslna)
-    except (ImportError, AttributeError):
-        return domyslna
+def get_all_guilds_players():
+    """Mapuje player_id na listę (guild_id, discord_id)."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT guild_id, discord_id, player_id FROM guild_players")
+        rows = cursor.fetchall()
+        result = {}
+        for g_id, d_id, p_id in rows:
+            if p_id not in result: result[p_id] = []
+            result[p_id].append((int(g_id), d_id))
+        return result
