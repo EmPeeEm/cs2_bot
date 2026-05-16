@@ -21,7 +21,7 @@ Zaawansowany bot Discordowy do automatycznego śledzenia statystyk graczy Counte
 ### Kroki instalacji
 1.  **Sklonuj repozytorium:**
     ```bash
-    git clone [url-twojego-repozytorium]
+    git clone https://github.com/EmPeeEm/cs2_bot.git
     cd cs2_bot
     ```
 
