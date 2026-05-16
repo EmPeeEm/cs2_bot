@@ -92,16 +92,16 @@ class SeasonView(discord.ui.View):
         rola_mvp = discord.utils.get(interaction.guild.roles, name="✨ MVP Sezonu")
         if not rola_mvp:
             try: rola_mvp = await interaction.guild.create_role(name="✨ MVP Sezonu", color=0xFFD700, hoist=True)
-            except: pass
+            except discord.HTTPException: pass
                 
         if rola_mvp:
             for member in rola_mvp.members:
                 try: await member.remove_roles(rola_mvp)
-                except: pass
+                except (discord.Forbidden, discord.HTTPException): pass
             mvp_member = interaction.guild.get_member(int(mvp['discord_id']))
             if mvp_member:
                 try: await mvp_member.add_roles(rola_mvp)
-                except: pass
+                except (discord.Forbidden, discord.HTTPException): pass
         
         opis = f"🏁 **KONIEC SEZONU: {sezon_obecny['nazwa']}**\n\n"
         for i, res in enumerate(wyniki, 1):
@@ -158,7 +158,7 @@ class SeasonUICog(commands.Cog):
         try:
             msg = await channel.fetch_message(int(sezon["leaderboard_msg_id"]))
             await msg.edit(embed=embed)
-        except: pass
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException): pass
 
     @commands.command(name="sezon")
     @commands.has_permissions(administrator=True)

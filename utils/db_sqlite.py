@@ -34,7 +34,8 @@ def init_db():
             map_name TEXT,
             score TEXT,
             match_date DATETIME,
-            status TEXT DEFAULT 'finished'
+            status TEXT DEFAULT 'finished',
+            rounds INTEGER
         )
     ''')
 
@@ -53,10 +54,27 @@ def init_db():
             elo_gain INTEGER,
             current_elo INTEGER,
             win INTEGER,
+            kd REAL,
+            kr REAL,
+            mvp INTEGER,
+            ud REAL,
+            udpr REAL,
+            ef INTEGER,
+            clutch_1v1 INTEGER,
+            clutch_1v2 INTEGER,
+            entry_wins INTEGER,
+            entry_success REAL,
+            flash_success REAL,
+            triple_kills INTEGER,
+            quadro_kills INTEGER,
+            penta_kills INTEGER,
+            sniper_kills INTEGER,
+            sniper_kr REAL,
             FOREIGN KEY (match_id) REFERENCES matches (match_id)
         )
     ''')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_history_pid ON match_history(player_id)')
+    cursor.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_history_unique ON match_history(match_id, player_id)')
 
     # 4. Tabela ustawień
     cursor.execute('''
@@ -117,11 +135,31 @@ def migrate_schema():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
+    # Utworzenie unikalnego indeksu chroniącego przed duplikatami
+    cursor.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_history_unique ON match_history(match_id, player_id)')
+    
     # Lista kolumn do dodania (tabela, kolumna, definicja)
     updates = [
         ("matches", "status", "TEXT DEFAULT 'finished'"),
+        ("matches", "rounds", "INTEGER"),
         ("streaks", "last_updated", "DATETIME DEFAULT CURRENT_TIMESTAMP"),
-        ("last_match_state", "last_check", "DATETIME DEFAULT CURRENT_TIMESTAMP")
+        ("last_match_state", "last_check", "DATETIME DEFAULT CURRENT_TIMESTAMP"),
+        ("match_history", "kd", "REAL"),
+        ("match_history", "kr", "REAL"),
+        ("match_history", "mvp", "INTEGER"),
+        ("match_history", "ud", "REAL"),
+        ("match_history", "udpr", "REAL"),
+        ("match_history", "ef", "INTEGER"),
+        ("match_history", "clutch_1v1", "INTEGER"),
+        ("match_history", "clutch_1v2", "INTEGER"),
+        ("match_history", "entry_wins", "INTEGER"),
+        ("match_history", "entry_success", "REAL"),
+        ("match_history", "flash_success", "REAL"),
+        ("match_history", "triple_kills", "INTEGER"),
+        ("match_history", "quadro_kills", "INTEGER"),
+        ("match_history", "penta_kills", "INTEGER"),
+        ("match_history", "sniper_kills", "INTEGER"),
+        ("match_history", "sniper_kr", "REAL")
     ]
     
     for table, col, definition in updates:
@@ -131,7 +169,23 @@ def migrate_schema():
         except sqlite3.OperationalError:
             # Kolumna już istnieje
             pass
-            
+
+    # Naprawa tekstowych dat (fallbacków) w tabeli matches
+    cursor.execute("SELECT match_id, match_date FROM matches WHERE typeof(match_date) = 'text'")
+    text_dates = cursor.fetchall()
+    for m_id, m_date in text_dates:
+        try:
+            # Sprawdźmy, czy wygląda jak format datetime
+            if "-" in m_date and ":" in m_date:
+                # Ograniczamy do pierwszych 19 znaków "YYYY-MM-DD HH:MM:SS" zeby uniknąć różnic w milisekundach
+                dt_str = m_date[:19]
+                dt = datetime.strptime(dt_str, '%Y-%m-%d %H:%M:%S')
+                unix_ts = int(dt.timestamp())
+                cursor.execute("UPDATE matches SET match_date = ? WHERE match_id = ?", (unix_ts, m_id))
+                print(f"🔧 Naprawiono tekstową datę meczu: {m_id}")
+        except Exception as e:
+            logger.error(f"Nie udało się naprawić daty dla {m_id}: {e}")
+
     conn.commit()
     conn.close()
 

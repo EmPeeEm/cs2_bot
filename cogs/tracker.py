@@ -22,6 +22,14 @@ class TrackerCog(commands.Cog):
     def cog_unload(self):
         self.check_matches.cancel()
         self.update_team_elo_channel.cancel()
+        
+        # Zabezpieczenie przed wyciekiem sesji HTTP
+        import asyncio
+        from utils.faceit_api import close_faceit_session
+        try:
+            asyncio.create_task(close_faceit_session())
+        except RuntimeError:
+            pass
 
     @commands.command(name="config", aliases=["ustawienia", "settings", "cfg"])
     @commands.has_permissions(administrator=True)
@@ -75,7 +83,11 @@ class TrackerCog(commands.Cog):
                     wartosc = wartosc.replace(char, "")
             
             if klucz == "main_color" and wartosc.startswith("#"):
-                nowa_wartosc = int(wartosc.replace("#", ""), 16)
+                try:
+                    nowa_wartosc = int(wartosc.replace("#", ""), 16)
+                except ValueError:
+                    await ctx.send("❌ Podałeś niepoprawny kod HEX koloru.")
+                    return
             elif wartosc.isdigit():
                 nowa_wartosc = int(wartosc)
             else:
@@ -123,9 +135,10 @@ class TrackerCog(commands.Cog):
     @tasks.loop(minutes=0.5)
     async def check_matches(self):
         await self.bot.wait_until_ready()
-        mecze_baza = wczytaj_ostatnie_mecze()
-        tilt_baza = wczytaj_tilt()
-        all_guilds_players = get_all_guilds_players()
+        import asyncio
+        mecze_baza = await asyncio.to_thread(wczytaj_ostatnie_mecze)
+        tilt_baza = await asyncio.to_thread(wczytaj_tilt)
+        all_guilds_players = await asyncio.to_thread(get_all_guilds_players)
         if not all_guilds_players: return
 
         import asyncio
@@ -142,11 +155,14 @@ class TrackerCog(commands.Cog):
             return {"gracz": gracz, "mecz": mecz}
 
         tasks = [check_player_match(p_id) for p_id in all_guilds_players.keys()]
-        results = await asyncio.gather(*tasks)
+        results = await asyncio.gather(*tasks, return_exceptions=True)
         zmieniono_baze, zmieniono_tilt = False, False
         guilds_to_update = set()
 
         for res in results:
+            if isinstance(res, Exception):
+                print(f"Faceit API/Match Check Exception: {res}")
+                continue
             if not res or not res["mecz"]: continue
             gracz, mecz = res["gracz"], res["mecz"]
             p_id = gracz["player_id"]
@@ -169,7 +185,12 @@ class TrackerCog(commands.Cog):
                             zmieniono_baze = True
                             continue
 
+                    # Zapisujemy status meczu i liczymy różnicę ELO
                     win = mecz['win']
+                    elo_gain = 0
+                    if stare_elo and obecne_elo > 0 and stare_elo > 0:
+                        elo_gain = obecne_elo - stare_elo
+
                     stary_streak = tilt_baza.get(p_id, 0)
                     nowy_streak = (max(0, stary_streak) + 1) if win else (min(0, stary_streak) - 1)
                     tilt_baza[p_id] = nowy_streak
@@ -188,9 +209,8 @@ class TrackerCog(commands.Cog):
 
                         tilt_limit = ust.get("tilt_limit", 3)
                         elo_tekst = f"**{obecne_elo}**"
-                        if stare_elo and obecne_elo > 0 and stare_elo > 0:
-                            diff = obecne_elo - stare_elo
-                            elo_tekst += f" *({'+' if diff > 0 else ''}{diff} ELO)*"
+                        if elo_gain != 0:
+                            elo_tekst += f" *({'+' if elo_gain > 0 else ''}{elo_gain} ELO)*"
 
                         hltv = float(mecz.get('hltv', 0))
                         if hltv >= 1.30: ocena = "BESTIA"
@@ -239,24 +259,28 @@ class TrackerCog(commands.Cog):
                         try:
                             await kanal.send(embed=embed)
                             if alert_msg: await kanal.send(content=alert_msg)
-                        except: pass
+                        except (discord.Forbidden, discord.NotFound, discord.HTTPException): 
+                            pass
 
+                # Zapis stanu i historii
                 mecze_baza[p_id] = {"match_id": aktualny_match_id, "elo": obecne_elo, "poziom": obecny_level}
                 
                 # ZAPIS DO HISTORII (DLA WYKRESÓW)
                 try:
-                    zapisz_historie_meczu(aktualny_match_id, p_id, mecz, obecne_elo, win)
+                    # win i elo_gain są już zdefiniowane powyżej
+                    await asyncio.to_thread(zapisz_historie_meczu, aktualny_match_id, p_id, mecz, obecne_elo, win, elo_gain, mecz.get('finished_at'))
                 except Exception as e:
                     print(f"Błąd zapisu historii meczu: {e}")
                 
                 zmieniono_baze = True
                 
         if zmieniono_baze:
-            zapisz_ostatnie_mecze(mecze_baza)
+            await asyncio.to_thread(zapisz_ostatnie_mecze, mecze_baza)
             season_cog = self.bot.get_cog("SeasonUICog")
             if season_cog:
                 for g_id in guilds_to_update: await season_cog.update_live_leaderboard(g_id)
-        if zmieniono_tilt: zapisz_tilt(tilt_baza)
+        if zmieniono_tilt: 
+            await asyncio.to_thread(zapisz_tilt, tilt_baza)
 
     @tasks.loop(hours=1.0)
     async def update_team_elo_channel(self):
@@ -266,12 +290,12 @@ class TrackerCog(commands.Cog):
         for guild in self.bot.guilds:
             try:
                 guild_id = guild.id
-                ust = wczytaj_ustawienia(guild_id)
+                ust = await asyncio.to_thread(wczytaj_ustawienia, guild_id)
                 k_id = ust.get("kanal_elo")
                 if not k_id or not str(k_id).isdigit(): continue
                 k = self.bot.get_channel(int(k_id)) or await self.bot.fetch_channel(int(k_id))
                 if not k: continue
-                ekipa = wczytaj_ekipe(guild_id)
+                ekipa = await asyncio.to_thread(wczytaj_ekipe, guild_id)
                 if not ekipa: continue
                 tasks = [get_player_stats(p_id, lifetime=False) for p_id in ekipa.values()]
                 results = await asyncio.gather(*tasks)
@@ -294,10 +318,10 @@ class TrackerCog(commands.Cog):
                     last_avg = curr_avg
                     ust["ostatnie_srednie_elo"] = curr_avg
                     ust["ostatni_tydzien_resetu"] = aktualny_tydzien
-                    zapisz_ustawienia(guild_id, ust)
+                    await asyncio.to_thread(zapisz_ustawienia, guild_id, ust)
                 elif not z_tydzien:
                     ust["ostatni_tydzien_resetu"] = aktualny_tydzien
-                    zapisz_ustawienia(guild_id, ust)
+                    await asyncio.to_thread(zapisz_ustawienia, guild_id, ust)
                 diff = round(curr_avg - last_avg, 1)
                 new_name = f"Średnie ELO: {curr_avg}{f' ({"+" if diff > 0 else ""}{diff})' if diff != 0 else ''}"
                 if k.name != new_name: await k.edit(name=new_name)

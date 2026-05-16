@@ -36,7 +36,7 @@ def wczytaj_ustawienia(guild_id):
         for k, v in rows:
             try:
                 ustawienia[k] = json.loads(v)
-            except:
+            except Exception:
                 ustawienia[k] = v
         return ustawienia
 
@@ -63,12 +63,12 @@ def get_cfg(guild_id, klucz, domyslna=None):
         else:
             try:
                 val = getattr(config, klucz.upper(), domyslna)
-            except:
+            except Exception:
                 val = domyslna
     else:
         try:
             val = getattr(config, klucz.upper(), domyslna)
-        except:
+        except Exception:
             val = domyslna
 
     # ZABEZPIECZENIE DLA KOLORÓW: Jeśli kolor jest stringiem (np. "0xffffff" lub "#ffffff"), zamień na int
@@ -77,7 +77,7 @@ def get_cfg(guild_id, klucz, domyslna=None):
             if val.startswith("#"):
                 return int(val.replace("#", ""), 16)
             return int(val, 16) if val.startswith("0x") else int(val)
-        except:
+        except Exception:
             return 0x2b2d31 # Domyślny kolor w razie błędu
             
     return val
@@ -162,31 +162,54 @@ def get_all_guilds_players():
             result[p_id].append((int(g_id), d_id))
         return result
 
-def zapisz_historie_meczu(match_id, player_id, stats, elo, win):
+def zapisz_historie_meczu(match_id, player_id, stats, elo, win, elo_gain=0, timestamp=None):
     """Zapisuje szczegółowe statystyki meczu do bazy."""
+    import time
     with get_connection() as conn:
         cursor = conn.cursor()
         
-        # Sprawdzamy czy mecz dla tego gracza już istnieje
-        cursor.execute("SELECT id FROM match_history WHERE match_id = ? AND player_id = ?", (match_id, player_id))
-        if cursor.fetchone():
-            return
+        # Poprawka daty: UNIX timestamp dla zachowania chronologii
+        m_date = timestamp if timestamp else int(time.time())
 
+        # Dodajemy wpis do tabeli matches jeśli nie istnieje (lub aktualizujemy datę i rundy)
+        cursor.execute('''
+            INSERT INTO matches (match_id, map_name, score, match_date, rounds) 
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(match_id) DO UPDATE SET 
+                match_date = excluded.match_date,
+                rounds = excluded.rounds
+        ''', (match_id, stats.get('mapa', 'Nieznana'), stats.get('wynik', '0-0'), m_date, int(stats.get('rounds', 0))))
+
+        # Nadpisujemy statystyki gracza korzystając z unikalnego indeksu i UPSERTu
         cursor.execute('''
             INSERT INTO match_history (
-                match_id, player_id, kills, deaths, assists, 
-                adr, hltv, hs_percent, elo_gain, current_elo, win
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                match_id, player_id, kills, deaths, assists, adr, hltv, hs_percent, 
+                elo_gain, current_elo, win, kd, kr, mvp, ud, udpr, ef, 
+                clutch_1v1, clutch_1v2, entry_wins, entry_success, flash_success,
+                triple_kills, quadro_kills, penta_kills, sniper_kills, sniper_kr
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(match_id, player_id) DO UPDATE SET
+                kills=excluded.kills, deaths=excluded.deaths, assists=excluded.assists, 
+                adr=excluded.adr, hltv=excluded.hltv, hs_percent=excluded.hs_percent, 
+                elo_gain=excluded.elo_gain, current_elo=excluded.current_elo, win=excluded.win, 
+                kd=excluded.kd, kr=excluded.kr, mvp=excluded.mvp, ud=excluded.ud, udpr=excluded.udpr, 
+                ef=excluded.ef, clutch_1v1=excluded.clutch_1v1, clutch_1v2=excluded.clutch_1v2, 
+                entry_wins=excluded.entry_wins, entry_success=excluded.entry_success, 
+                flash_success=excluded.flash_success, triple_kills=excluded.triple_kills, 
+                quadro_kills=excluded.quadro_kills, penta_kills=excluded.penta_kills, 
+                sniper_kills=excluded.sniper_kills, sniper_kr=excluded.sniper_kr
         ''', (
-            match_id, player_id, stats.get('kille', 0), stats.get('dedy', 0), stats.get('asysty', 0),
-            stats.get('adr', 0), stats.get('hltv', 0), stats.get('hs_procent', 0),
-            0, # elo_gain - na razie 0, bo wyliczamy z różnicy current_elo
-            elo, 1 if win else 0
+            match_id, player_id, 
+            int(stats.get('kille', 0)), int(stats.get('dedy', 0)), int(stats.get('asysty', 0)),
+            stats.get('adr', 0), stats.get('hltv', 0), int(stats.get('hs_procent', 0)), 
+            elo_gain, elo, 1 if win else 0,
+            stats.get('kd', 0), stats.get('kr', 0), int(stats.get('mvp', 0)), 
+            stats.get('ud', 0), stats.get('udpr', 0), int(stats.get('ef', 0)), 
+            int(stats.get('clutch_1v1', 0)), int(stats.get('clutch_1v2', 0)), 
+            int(stats.get('entry_wins', 0)), stats.get('entry_success', 0), stats.get('flash_success', 0),
+            int(stats.get('triple_kills', 0)), int(stats.get('quadro_kills', 0)), int(stats.get('penta_kills', 0)),
+            int(stats.get('sniper_kills', 0)), stats.get('sniper_kr', 0)
         ))
-        
-        # Dodajemy wpis do tabeli matches jeśli nie istnieje
-        cursor.execute("INSERT OR IGNORE INTO matches (match_id, map_name, score, match_date) VALUES (?, ?, ?, ?)",
-                       (match_id, stats.get('mapa', 'Nieznana'), stats.get('wynik', '0-0'), datetime.datetime.now()))
         
         conn.commit()
 
@@ -195,9 +218,10 @@ def pobierz_historie_elo(player_id, limit=20):
     with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute('''
-            SELECT current_elo, id FROM match_history 
-            WHERE player_id = ? 
-            ORDER BY id DESC LIMIT ?
+            SELECT mh.current_elo FROM match_history mh
+            JOIN matches m ON mh.match_id = m.match_id
+            WHERE mh.player_id = ? 
+            ORDER BY m.match_date DESC LIMIT ?
         ''', (player_id, limit))
         rows = cursor.fetchall()
         # Zwracamy w kolejności chronologicznej (od najstarszego do najnowszego)

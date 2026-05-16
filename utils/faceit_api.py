@@ -17,13 +17,22 @@ async def get_session():
         _session = aiohttp.ClientSession()
     return _session
 
+async def close_faceit_session():
+    global _session
+    if _session and not _session.closed:
+        await _session.close()
+
 async def get_faceit_data(endpoint: str):
     """Pomocnicza funkcja do zapytań API (z connection pooling)"""
     headers = {"Authorization": f"Bearer {FACEIT_KEY}"}
     session = await get_session()
-    async with session.get(f"{BASE_URL}/{endpoint}", headers=headers) as response:
-        if response.status == 200:
-            return await response.json()
+    try:
+        async with session.get(f"{BASE_URL}/{endpoint}", headers=headers) as response:
+            if response.status == 200:
+                return await response.json()
+            return None
+    except aiohttp.ClientError as e:
+        print(f"Faceit API Connection Error: {e}")
         return None
 
 async def get_player_id(identifier: str):
@@ -46,8 +55,21 @@ def is_uuid(identifier: str):
     """Sprawdza czy ciąg znaków jest w formacie UUID (player_id)"""
     return bool(re.match(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', str(identifier).lower()))
 
+import time
+
+_stats_cache = {}
+CACHE_TTL = 60
+
 async def get_player_stats(identifier: str, lifetime: bool = True):
     """Pobiera podstawowe info o graczu (ELO, Level). Opcjonalnie statystyki kariery."""
+    cache_key = f"{identifier}_{lifetime}"
+    now = time.time()
+    
+    if cache_key in _stats_cache:
+        cached, timestamp = _stats_cache[cache_key]
+        if now - timestamp < CACHE_TTL:
+            return cached
+
     if is_uuid(identifier):
         dane = await get_faceit_data(f"players/{identifier}")
     else:
@@ -85,6 +107,9 @@ async def get_player_stats(identifier: str, lifetime: bool = True):
             "lifetime_winstreak": lifetime_obj.get("Current Win Streak", "0")
         })
     
+    if stats:
+        _stats_cache[cache_key] = (stats, now)
+        
     return stats
 
 async def get_last_match_stats(player_id: str):
@@ -116,6 +141,7 @@ async def get_last_match_stats(player_id: str):
 
                     return {
                         "match_id": match_id,
+                        "finished_at": historia["items"][0].get("finished_at"),
                         "mapa": rs.get("Map", "Brak danych"),
                         "wynik": rs.get("Score", "Brak danych"),
                         "rounds": float(rs.get("Rounds", 0)),
@@ -176,11 +202,17 @@ async def get_multiple_matches_stats(player_id: str, limit: int = 30):
             await asyncio.sleep(0.1)
             return await get_faceit_data(f"matches/{match_id}/stats")
         
-    wyniki = await asyncio.gather(*(fetch_single(item["match_id"]) for item in items))
-    
+    wyniki = []
+    for item in items:
+        m_id = item["match_id"]
+        f_at = item.get("finished_at")
+        staty = await fetch_single(m_id)
+        if staty:
+            wyniki.append((staty, f_at))
+        
     podsumowanie = []
     # Parsowanie danych pod kątem konkretnego gracza
-    for mecz_dane in wyniki:
+    for mecz_dane, finished_at in wyniki:
         if not mecz_dane:
             continue
         for runda in mecz_dane.get("rounds", []):
@@ -198,6 +230,7 @@ async def get_multiple_matches_stats(player_id: str, limit: int = 30):
                         
                         podsumowanie.append({
                             "match_id": mecz_dane.get("match_id"),
+                            "finished_at": finished_at,
                             "kille": kille,
                             "asysty": asysty,
                             "dedy": dedy,
