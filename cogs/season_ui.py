@@ -175,5 +175,23 @@ class SeasonUICog(commands.Cog):
         embed = await self._generate_leaderboard_embed(guild_id, nazwa, sezon_obecny.get('start_elo', {}))
         await ctx.send(embed=embed, view=SeasonView())
 
+    @commands.command(name="sezon_reload", aliases=["sr"])
+    @commands.has_permissions(administrator=True)
+    async def panel_sezon_reload(self, ctx):
+        """Ręcznie wymusza aktualizację wiadomości z rankingiem sezonowym."""
+        guild_id = ctx.guild.id
+        sezon = wczytaj_sezon(guild_id)
+        if not sezon or "nazwa" not in sezon:
+            await ctx.send("❌ Brak aktywnego sezonu.", delete_after=5)
+            return
+            
+        if not sezon.get("leaderboard_msg_id") or not sezon.get("leaderboard_channel_id"):
+            await ctx.send("❌ Brak powiązanej wiadomości z rankingiem.", delete_after=5)
+            return
+            
+        msg = await ctx.send("⏳ Wymuszam aktualizację rankingu...")
+        await self.update_live_leaderboard(guild_id)
+        await msg.edit(content="✅ Ranking sezonowy został pomyślnie zaktualizowany!")
+
 async def setup(bot):
     await bot.add_cog(SeasonUICog(bot))

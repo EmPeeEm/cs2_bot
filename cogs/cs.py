@@ -820,7 +820,7 @@ class CSCommands(commands.Cog):
             if ctx.author.guild_permissions.administrator:
                 embed.add_field(
                     name="🛠️ ADMINISTRACJA", 
-                    value=f"🔸 `{ctx.prefix}config`, `{ctx.prefix}sezon`, `{ctx.prefix}tilt_config` ", 
+                    value=f"🔸 `{ctx.prefix}config`, `{ctx.prefix}sezon`, `{ctx.prefix}sezon_reload`, `{ctx.prefix}tilt_config` ", 
                     inline=False
                 )
             
@@ -847,6 +847,7 @@ class CSCommands(commands.Cog):
             "elo": "Szybki podgląd ELO i informacji ile punktów brakuje do awansu na kolejny poziom.",
             "config": "Panel zarządzania bota. Pozwala zmieniać prefix, kolory i kanały powiadomień.",
             "sezon": "System rankingowy wewnątrz serwera. Pozwala zarządzać startem i końcem sezonu.",
+            "sezon_reload": "Ręcznie wymusza aktualizację wiadomości z rankingiem sezonowym.",
             "tilt_config": "Ustawienia alertów dla serii wygranych/porażek (tzw. Tilt-Meter)."
         }
 
