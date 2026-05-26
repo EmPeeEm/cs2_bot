@@ -848,7 +848,8 @@ class CSCommands(commands.Cog):
             "config": "Panel zarządzania bota. Pozwala zmieniać prefix, kolory i kanały powiadomień.",
             "sezon": "System rankingowy wewnątrz serwera. Pozwala zarządzać startem i końcem sezonu.",
             "sezon_reload": "Ręcznie wymusza aktualizację wiadomości z rankingiem sezonowym.",
-            "tilt_config": "Ustawienia alertów dla serii wygranych/porażek (tzw. Tilt-Meter)."
+            "tilt_config": "Ustawienia alertów dla serii wygranych/porażek (tzw. Tilt-Meter).",
+            "wykres": "Generuje zaawansowany wykres punktów ELO na przestrzeni ostatnich meczów."
         }
 
         # Parametry użycia
@@ -863,7 +864,8 @@ class CSCommands(commands.Cog):
             "elo": "[nick/ping]",
             "config": "[klucz] [wartość]",
             "sezon": "[operacja]",
-            "tilt_config": "[limit/off]"
+            "tilt_config": "[limit/off]",
+            "wykres": "[ilość] [nick/ping]"
         }
 
         name = target_command.name
@@ -884,6 +886,8 @@ class CSCommands(commands.Cog):
              embed.add_field(name="ℹ️ Info", value="Domyślnie analizuje 20 meczów. Możesz podać własną liczbę (max 100).", inline=False)
         elif name == "compare":
              embed.add_field(name="ℹ️ Info", value="Możesz spingować dwóch graczy lub wpisać ich nicki ręcznie.", inline=False)
+        elif name == "wykres":
+             embed.add_field(name="ℹ️ Info", value="Domyślnie analizuje 20 meczów. Możesz podać własną liczbę (od 2 do 100) oraz pingować użytkownika w dowolnej kolejności.", inline=False)
 
         embed.set_footer(text=f"Więcej pomocy pod {ctx.prefix}pomoc")
         await ctx.send(embed=embed)
@@ -891,32 +895,42 @@ class CSCommands(commands.Cog):
     @commands.command(name="wykres", aliases=["chart", "graph"])
     async def komenda_wykres(self, ctx, *args):
         guild_id = ctx.guild.id
-        faceit_nick, display_name = self.parse_identifier(ctx, args)
-        if not await self.check_nick(ctx, faceit_nick, args[0] if args else None):
+        limit = 20
+        parsed_args = []
+        for arg in args:
+            if arg.isdigit():
+                limit = int(arg)
+            else:
+                parsed_args.append(arg)
+                
+        limit = min(max(2, limit), 100)
+        
+        faceit_nick, display_name = self.parse_identifier(ctx, parsed_args)
+        if not await self.check_nick(ctx, faceit_nick, parsed_args[0] if parsed_args else None):
             return
             
-        msg = await ctx.send(f"Generuję wykres ELO dla **{display_name}**... 📊")
+        msg = await ctx.send(f"Generuję wykres ELO z ostatnich **{limit}** gier dla **{display_name}**... 📊")
         
         # 1. Pobieramy player_id (jeśli to nie jest już UUID)
         p_id = await get_player_id(faceit_nick)
         if not p_id:
             await msg.edit(content=f"Nie znalazłem gracza: **{faceit_nick}**.")
             return
-
+ 
         # 2. Pobieramy historię z bazy
-        historia = pobierz_historie_elo(p_id, limit=20)
+        historia = pobierz_historie_elo(p_id, limit=limit)
         
         if not historia or len(historia) < 2:
-            await msg.edit(content=f"⚠️ Za mało danych w bazie, aby wygenerować wykres dla **{display_name}**. Muszę zarejestrować co najmniej 2 mecze.")
+            await msg.edit(content=f"⚠️ Za mało danych w bazie, aby wygenerować wykres dla **{display_name}**. Muszę zarejestrować co najmniej 2 mecze (aktualnie w bazie: {len(historia) if historia else 0}).")
             return
-
+ 
         # 3. Generujemy wykres
         plik = generuj_wykres_elo(display_name, historia)
         
         if not plik:
             await msg.edit(content="❌ Błąd podczas generowania wykresu.")
             return
-
+ 
         embed = discord.Embed(
             title=f"Wykres ELO - {display_name}",
             color=get_cfg(guild_id, "main_color", 0x2b2d31)
