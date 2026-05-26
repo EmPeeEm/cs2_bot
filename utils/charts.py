@@ -28,6 +28,10 @@ def generuj_wykres_elo(nick, elo_history):
     ax.set_xlabel("Ostatnie Mecze", fontsize=12, labelpad=10)
     ax.set_ylabel("Punkty ELO", fontsize=12, labelpad=10)
     
+    # Wymuszenie skali co 1 (liczby całkowite) na osi X
+    from matplotlib.ticker import MaxNLocator
+    ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+    
     # Siatka
     ax.grid(True, linestyle='--', alpha=0.3, color=grid_color)
     
