@@ -123,19 +123,28 @@ def wczytaj_sezon(guild_id):
     """Pobiera dane aktywnego sezonu gildii."""
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT name, start_elo, archive_data FROM seasons WHERE guild_id = ? AND is_active = 1", (str(guild_id),))
+        cursor.execute("SELECT name, start_elo, archive_data, leaderboard_msg_id, leaderboard_channel_id FROM seasons WHERE guild_id = ? AND is_active = 1", (str(guild_id),))
         row = cursor.fetchone()
         if not row: return {}
         return {
             "nazwa": row[0],
             "start_elo": json.loads(row[1]) if row[1] else {},
-            "archive": json.loads(row[2]) if row[2] else {}
+            "archive": json.loads(row[2]) if row[2] else {},
+            "leaderboard_msg_id": int(row[3]) if row[3] else None,
+            "leaderboard_channel_id": int(row[4]) if row[4] else None
         }
 
 def zapisz_sezon(guild_id, dane):
     """Zapisuje dane sezonu gildii."""
     with get_connection() as conn:
         cursor = conn.cursor()
+        
+        # Jeśli dane są puste, deaktywujemy aktywny sezon (is_active = 0)
+        if not dane:
+            cursor.execute("UPDATE seasons SET is_active = 0 WHERE guild_id = ? AND is_active = 1", (str(guild_id),))
+            conn.commit()
+            return
+            
         # Najpierw sprawdzamy czy sezon już istnieje
         cursor.execute("SELECT id FROM seasons WHERE guild_id = ? AND is_active = 1", (str(guild_id),))
         exists = cursor.fetchone()
@@ -143,11 +152,13 @@ def zapisz_sezon(guild_id, dane):
         name = dane.get("nazwa", "Nowy Sezon")
         start_elo = json.dumps(dane.get("start_elo", {}))
         archive = json.dumps(dane.get("archive", {}))
+        msg_id = str(dane.get("leaderboard_msg_id")) if dane.get("leaderboard_msg_id") else None
+        chan_id = str(dane.get("leaderboard_channel_id")) if dane.get("leaderboard_channel_id") else None
         
         if exists:
-            cursor.execute("UPDATE seasons SET name = ?, start_elo = ?, archive_data = ? WHERE id = ?", (name, start_elo, archive, exists[0]))
+            cursor.execute("UPDATE seasons SET name = ?, start_elo = ?, archive_data = ?, leaderboard_msg_id = ?, leaderboard_channel_id = ? WHERE id = ?", (name, start_elo, archive, msg_id, chan_id, exists[0]))
         else:
-            cursor.execute("INSERT INTO seasons (guild_id, name, is_active, start_elo, archive_data) VALUES (?, ?, 1, ?, ?)", (str(guild_id), name, start_elo, archive))
+            cursor.execute("INSERT INTO seasons (guild_id, name, is_active, start_elo, archive_data, leaderboard_msg_id, leaderboard_channel_id) VALUES (?, ?, 1, ?, ?, ?, ?)", (str(guild_id), name, start_elo, archive, msg_id, chan_id))
         conn.commit()
 
 def get_all_guilds_players():

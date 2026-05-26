@@ -95,7 +95,9 @@ def init_db():
             name TEXT,
             is_active INTEGER DEFAULT 0,
             start_elo TEXT,
-            archive_data TEXT
+            archive_data TEXT,
+            leaderboard_msg_id TEXT,
+            leaderboard_channel_id TEXT
         )
     ''')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_seasons_guild ON seasons(guild_id)')
@@ -123,6 +125,7 @@ def init_db():
 
     conn.commit()
     conn.close()
+    migrate_schema()
     logger.info("Baza danych zoptymalizowana i gotowa.")
 
 def get_connection():
@@ -159,7 +162,9 @@ def migrate_schema():
         ("match_history", "quadro_kills", "INTEGER"),
         ("match_history", "penta_kills", "INTEGER"),
         ("match_history", "sniper_kills", "INTEGER"),
-        ("match_history", "sniper_kr", "REAL")
+        ("match_history", "sniper_kr", "REAL"),
+        ("seasons", "leaderboard_msg_id", "TEXT"),
+        ("seasons", "leaderboard_channel_id", "TEXT")
     ]
     
     for table, col, definition in updates:

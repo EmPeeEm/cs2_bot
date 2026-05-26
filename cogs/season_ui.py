@@ -148,7 +148,7 @@ class SeasonUICog(commands.Cog):
 
     async def update_live_leaderboard(self, guild_id):
         sezon = wczytaj_sezon(guild_id)
-        if not sezon or "nazwa" not in sezon or "leaderboard_msg_id" not in sezon:
+        if not sezon or "nazwa" not in sezon or not sezon.get("leaderboard_msg_id") or not sezon.get("leaderboard_channel_id"):
             return
 
         embed = await self._generate_leaderboard_embed(guild_id, sezon['nazwa'], sezon.get('start_elo', {}))
