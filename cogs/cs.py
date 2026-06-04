@@ -7,7 +7,7 @@ from utils.faceit_api import get_player_stats, is_uuid, get_player_id
 import config
 from utils.database import (
     wczytaj_ekipe, zapisz_ekipe, wczytaj_sezon, zapisz_sezon, 
-    get_cfg, pobierz_historie_elo
+    get_cfg, pobierz_historie_elo, pobierz_mecze_z_bazy
 )
 from utils.charts import generuj_wykres_elo
 
@@ -394,15 +394,25 @@ class CSCommands(commands.Cog):
             await msg.edit(content=f"Nie znalazłem gracza `{nickname}`.")
             return
 
-        from utils.faceit_api import get_multiple_matches_stats
-        mecze = await get_multiple_matches_stats(gracz['player_id'], limit)
+        # Pobieramy mecze z bazy danych
+        import asyncio
+        mecze = await asyncio.to_thread(pobierz_mecze_z_bazy, gracz['player_id'], limit)
         
         if not mecze:
-            await msg.edit(content=f"Gracz `{nickname}` nie rozegrał jeszcze żadnego meczu CS2.")
+            await msg.edit(content=f"⚠️ Brak zarejestrowanych meczów gracza `{nickname}` w bazie danych bota.")
             return
             
         wygrane = sum(1 for m in mecze if m['win'])
         wr = int((wygrane / len(mecze)) * 100)
+        
+        # Bilans ELO na przestrzeni tych meczów
+        elo_diff = sum(m.get('elo_gain', 0) for m in mecze)
+        if elo_diff > 0:
+            elo_diff_text = f"+{elo_diff} ELO"
+        elif elo_diff < 0:
+            elo_diff_text = f"{elo_diff} ELO"
+        else:
+            elo_diff_text = "Bez zmian"
         
         avg_kills = sum(m['kille'] for m in mecze) / len(mecze)
         avg_kd = sum(m['kd'] for m in mecze) / len(mecze)
@@ -426,6 +436,7 @@ class CSCommands(commands.Cog):
         embed = discord.Embed(
             title=f"Seria Ostatnich {len(mecze)} Spotkań - {gracz['nick']}",
             description=f"Skuteczność: **{wr}%** ({wygrane}W - {len(mecze)-wygrane}L)\n"
+                        f"Bilans ELO: **{elo_diff_text}**\n"
                         f"Est. HLTV: **{avg_hltv:.2f}**\n\n"
                         f"Obecna Ranga: {emotka_levelu} **{gracz['elo']} ELO**",
             color=kolor
@@ -840,7 +851,7 @@ class CSCommands(commands.Cog):
             "polacz": "Łączy Twój profil Discord z kontem Faceit. Pozwala to na używanie komend bez wpisywania nicku.",
             "stats": "Wyświetla kompletny paszport statystyk gracza: ELO, poziom, K/D, ADR oraz winstreaki.",
             "last": "Szczegółowa analiza ostatniego meczu. Pokazuje kille, HLTV rating oraz wpływ na punkty ELO.",
-            "recent": "Analiza formy z ostatniej serii gier (domyślnie 20). Pokazuje średnie statystyki strzeleckie.",
+            "recent": "Analiza formy z ostatniej serii gier pobranych z bazy danych (domyślnie 20). Pokazuje średnie statystyki i bilans ELO.",
             "compare": "Arena 1v1. Porównuje formę dwóch graczy ze wskazaniem lidera w każdej kategorii.",
             "history": "Wyświetla listę 5 ostatnich spotkań wraz z wynikiem i Twoimi statystykami.",
             "maps": "Twoja skuteczność na poszczególnych mapach 5v5. Pokazuje WR i K/D.",
@@ -883,7 +894,7 @@ class CSCommands(commands.Cog):
         embed.add_field(name="🔗 Aliasy (skróty)", value=aliases, inline=False)
         
         if name == "recent":
-             embed.add_field(name="ℹ️ Info", value="Domyślnie analizuje 20 meczów. Możesz podać własną liczbę (max 100).", inline=False)
+             embed.add_field(name="ℹ️ Info", value="Analizuje mecze zapisane w bazie danych (domyślnie 20, max 100). Możesz podać własną liczbę.", inline=False)
         elif name == "compare":
              embed.add_field(name="ℹ️ Info", value="Możesz spingować dwóch graczy lub wpisać ich nicki ręcznie.", inline=False)
         elif name == "wykres":

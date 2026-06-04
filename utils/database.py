@@ -237,3 +237,77 @@ def pobierz_historie_elo(player_id, limit=20):
         rows = cursor.fetchall()
         # Zwracamy w kolejności chronologicznej (od najstarszego do najnowszego)
         return [row[0] for row in reversed(rows)]
+
+def pobierz_mecze_z_bazy(player_id, limit=20):
+    """Pobiera listę ostatnich meczów gracza z bazy danych w celach statystycznych."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT 
+                mh.match_id,
+                mh.kills,
+                mh.deaths,
+                mh.assists,
+                mh.adr,
+                mh.hltv,
+                mh.hs_percent,
+                mh.elo_gain,
+                mh.current_elo,
+                mh.win,
+                mh.kd,
+                mh.kr,
+                mh.mvp,
+                mh.ud,
+                mh.udpr,
+                mh.ef,
+                mh.clutch_1v1,
+                mh.clutch_1v2,
+                mh.entry_wins,
+                mh.entry_success,
+                mh.triple_kills,
+                mh.quadro_kills,
+                mh.penta_kills,
+                mh.sniper_kills,
+                m.score,
+                m.map_name,
+                m.match_date
+            FROM match_history mh
+            JOIN matches m ON mh.match_id = m.match_id
+            WHERE mh.player_id = ?
+            ORDER BY m.match_date DESC
+            LIMIT ?
+        ''', (player_id, limit))
+        rows = cursor.fetchall()
+        
+        podsumowanie = []
+        for r in rows:
+            podsumowanie.append({
+                "match_id": r[0],
+                "kille": float(r[1]) if r[1] is not None else 0.0,
+                "dedy": float(r[2]) if r[2] is not None else 1.0,
+                "asysty": float(r[3]) if r[3] is not None else 0.0,
+                "adr": float(r[4]) if r[4] is not None else 0.0,
+                "hltv": float(r[5]) if r[5] is not None else 0.0,
+                "hs_procent": float(r[6]) if r[6] is not None else 0.0,
+                "elo_gain": int(r[7]) if r[7] is not None else 0,
+                "current_elo": int(r[8]) if r[8] is not None else 0,
+                "win": bool(r[9]),
+                "kd": float(r[10]) if r[10] is not None else 0.0,
+                "kr": float(r[11]) if r[11] is not None else 0.0,
+                "mvp": float(r[12]) if r[12] is not None else 0.0,
+                "ud": float(r[13]) if r[13] is not None else 0.0,
+                "udpr": float(r[14]) if r[14] is not None else 0.0,
+                "ef": float(r[15]) if r[15] is not None else 0.0,
+                "clutch_1v1": float(r[16]) if r[16] is not None else 0.0,
+                "clutch_1v2": float(r[17]) if r[17] is not None else 0.0,
+                "entry_wins": float(r[18]) if r[18] is not None else 0.0,
+                "entry_success": float(r[19]) if r[19] is not None else 0.0,
+                "triple_kills": int(r[20]) if r[20] is not None else 0,
+                "quadro_kills": int(r[21]) if r[21] is not None else 0,
+                "penta_kills": int(r[22]) if r[22] is not None else 0,
+                "sniper_kills": int(r[23]) if r[23] is not None else 0,
+                "score": r[24] if r[24] is not None else "Brak",
+                "mapa": r[25] if r[25] is not None else "Nieznana",
+                "finished_at": r[26]
+            })
+        return podsumowanie
