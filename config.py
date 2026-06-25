@@ -104,3 +104,71 @@ HLTV_BOT_TEXTS = [
 
 # --- MAPY ---
 TOURNAMENT_MAPS = ["Mirage", "Inferno", "Dust2", "Nuke", "Ancient", "Anubis", "Overpass"]
+
+# --- TEKSTY DLA REKORDÓW ---
+RECORD_KILLS_TEXTS = [
+    "Co za rzeźnik! {gracz} właśnie ustanowił NOWY REKORD SERWERA, zdobywając aż {wynik} killi na mapie {mapa}! Czy ktoś go w końcu zatrzyma?",
+    "Ałć, to musiało boleć. {gracz} wjechał w nich jak walec i zdobył {wynik} killi na {mapa}, pobijając rekord serwera! Szykujcie dla niego tron.",
+    "Patrzcie i płaczcie, {gracz} właśnie pobił rekord z {wynik} fragami na {mapa}. Chyba przedtreningówka weszła za mocno!"
+]
+
+RECORD_HLTV_TEXTS = [
+    "Kosmiczny występ! {gracz} wykręcił rekordowe HLTV rating na poziomie {wynik} na mapie {mapa}! HLTV już pisze o nim artykuł.",
+    "Tryb Boga aktywowany. Rekordowe rating HLTV {wynik} na {mapa} ląduje na koncie gracza {gracz}. Czysta poezja niszczenia!",
+    "Czy to człowiek, czy to maszyna? {gracz} ustanawia nowy rekord z HLTV {wynik} na {mapa}. Przeciwnicy do teraz płaczą w kącie."
+]
+
+RECORD_UD_TEXTS = [
+    "Grenadier roku! {gracz} zadał rekordowe {wynik} Utility Damage na mapie {mapa}. Granaty latały gęsto!",
+    "Prawdziwy terrorysta z granatami. {gracz} ustanawia rekord serwera z {wynik} Utility Damage na {mapa}. Piekło na ziemi!",
+    "Nikt tak nie rzuca heków jak on. {gracz} sieje spustoszenie z rekordem {wynik} Utility Damage na {mapa}!"
+]
+
+RECORD_LOW_KILLS_TEXTS = [
+    "🚨 ALARM BOTOWANIA! 🚨 {gracz} zagrał mecz życia i pobił rekord najmniejszej liczby killi w pełnym meczu: zaledwie {wynik} na mapie {mapa} ({wynik_meczu})! Zabrać mu komputer, bo jeszcze kogoś nim skrzywdzi!",
+    "Czy to pacyfista? {gracz} ustanawia rekord rynsztoka z {wynik} fragami na {mapa} ({wynik_meczu}). Przeciwnicy nawet nie musieli unikać jego strzałów, bo i tak strzelał w niebo.",
+    "Co za spektakularny pokaz bezradności. {gracz} zamyka tabelę z rekordowo niskim wynikiem {wynik} killi na {mapa} ({wynik_meczu}). Nawet bot z Gabenem gra lepiej!"
+]
+
+RECORD_LOW_HLTV_TEXTS = [
+    "🚨 REKORD BOTOWANIA POBITY! 🚨 {gracz} osiągnął historyczne dno z HLTV rating na poziomie {wynik} na mapie {mapa} ({wynik_meczu})! To nie jest gra nogami, to jest brak rąk.",
+    "Jak można być tak bezużytecznym? {gracz} ustanawia absolutny rekord najniższego HLTV: {wynik} na {mapa} ({wynik_meczu}). Nawet stojąc w miejscu, miałby większy impact.",
+    "Historyczny moment! {gracz} pobija rekord najniższego HLTV na tym serwerze: {wynik} na {mapa} ({wynik_meczu}). Gratulacje, zasłużyłeś na miano oficjalnego bota serwera."
+]
+
+RECORD_DEATHS_TEXTS = [
+    "Główny sponsor wroga! {gracz} pobił rekord zgonów, umierając aż {wynik} razy na mapie {mapa}! Twoje plecy muszą być czerwone od tego ciągłego padania na glebę.",
+    "Co mecz to darmowy frag dla przeciwników. {gracz} ustanawia rekord zgonów z wynikiem {wynik} na {mapa}. Może zainwestujesz w kamizelkę kuloodporną?",
+    "Czy ty masz włączony auto-run na spawn wroga? {gracz} pobił rekord, umierając {wynik} razy na {mapa}. Wyglądało to jak celowy sabotaż!"
+]
+
+# --- TEKSTY DLA REMISÓW / WYRÓWNAŃ REKORDÓW ---
+RECORD_KILLS_TIE_TEXTS = [
+    "🤝 Mamy remis na szczycie! {gracz} wyrównuje rekord killi, zdobywając {wynik} na mapie {mapa}! {gracz} dołącza do elity.",
+    "Oho, {gracz} poczuł krew i zdobył {wynik} killi na {mapa}, wyrównując rekord serwera! Robi się ciasno na podium."
+]
+
+RECORD_HLTV_TIE_TEXTS = [
+    "🤝 Co za stabilizacja formy! {gracz} wyrównuje rekord najwyższego ratingu HLTV: {wynik} na {mapa}! Klasa sama w sobie.",
+    "Kolejny tryhard na serwerze! {gracz} wykręcił {wynik} HLTV na {mapa}, wyrównując dotychczasowy rekord!"
+]
+
+RECORD_UD_TIE_TEXTS = [
+    "🤝 Kolejny miotacz ognia! {gracz} wyrównuje rekord Utility Damage: {wynik} UD na mapie {mapa}!",
+    "Granaty latają z tą samą precyzją. {gracz} wyrównał rekord {wynik} Utility Damage na {mapa}!"
+]
+
+RECORD_LOW_KILLS_TIE_TEXTS = [
+    "🤝 Witamy w klubie pacyfistów! {gracz} wyrównuje anty-rekord najmniejszej liczby killi w pełnym meczu: zaledwie {wynik} na {mapa} ({wynik_meczu}). Grasz tak samo słabo jak poprzednik!",
+    "Bratnia dusza dla bota! {gracz} wyrównał najgorszy wynik killi ({wynik}) na {mapa} ({wynik_meczu}). Idealnie uzupełniacie ten rynsztok."
+]
+
+RECORD_LOW_HLTV_TIE_TEXTS = [
+    "🚨 REMIS W RYNSZTOKU! 🚨 {gracz} wyrównuje anty-rekord najniższego HLTV rating: {wynik} na mapie {mapa} ({wynik_meczu}). Poziom żenady osiągnął stan równowagi.",
+    "Boty się mnożą! {gracz} wyrównał rekord najniższego HLTV ({wynik}) na {mapa} ({wynik_meczu}). Obaj powinniście grać w bierki pod wodą."
+]
+
+RECORD_DEATHS_TIE_TEXTS = [
+    "🤝 Solidarność w ginięciu! {gracz} wyrównuje rekord zgonów, padając aż {wynik} razy na mapie {mapa}. Wasz darmowy catering dla wroga działa bez zarzutu!",
+    "Kolejny chętny do bycia mięsem armatnim. {gracz} umiera {wynik} razy na {mapa}, wyrównując dotychczasowy rekord zgonów!"
+]

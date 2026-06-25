@@ -272,6 +272,15 @@ class TrackerCog(commands.Cog):
                 except Exception as e:
                     print(f"Błąd zapisu historii meczu: {e}")
                 
+                # Sprawdzenie rekordów (Hala Sław / Wstydu)
+                records_cog = self.bot.get_cog("RecordsCog")
+                if records_cog:
+                    for g_id, d_id in guilds_to_notify:
+                        try:
+                            await records_cog.check_and_announce(g_id, d_id, p_id, aktualny_match_id, mecz, win)
+                        except Exception as e:
+                            print(f"Błąd sprawdzania rekordów dla {p_id} w gildii {g_id}: {e}")
+
                 zmieniono_baze = True
                 
         if zmieniono_baze:
