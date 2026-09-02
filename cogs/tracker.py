@@ -146,10 +146,9 @@ class TrackerCog(commands.Cog):
             current_match_id = await get_latest_match_id(p_id)
             if not current_match_id: return None
             zapis_bazy = mecze_baza.get(p_id)
-            saved_match_id = zapis_bazy if isinstance(zapis_bazy, str) else zapis_bazy.get("match_id") if isinstance(zapis_bazy, dict) else None
+            saved_match_id = zapis_bazy.get("match_id") if isinstance(zapis_bazy, dict) else (zapis_bazy if isinstance(zapis_bazy, str) else None)
             if current_match_id == saved_match_id:
-                if isinstance(zapis_bazy, dict) and zapis_bazy.get("retry_count", 0) > 0: pass
-                else: return None
+                return None
             gracz = await get_player_stats(p_id, lifetime=False)
             mecz = await get_last_match_stats(p_id)
             return {"gracz": gracz, "mecz": mecz}
@@ -161,116 +160,127 @@ class TrackerCog(commands.Cog):
 
         for res in results:
             if isinstance(res, Exception):
-                print(f"Faceit API/Match Check Exception: {res}")
+                print(f"❌ Faceit API/Match Check Exception: {res}")
                 continue
-            if not res or not res["mecz"]: continue
+            if not res or not res["mecz"] or not res["gracz"]: continue
             gracz, mecz = res["gracz"], res["mecz"]
             p_id = gracz["player_id"]
             aktualny_match_id = mecz["match_id"]
             zapis_bazy = mecze_baza.get(p_id)
-            zapisany_match_id = zapis_bazy if isinstance(zapis_bazy, str) else zapis_bazy.get("match_id") if isinstance(zapis_bazy, dict) else None
+            zapisany_match_id = zapis_bazy.get("match_id") if isinstance(zapis_bazy, dict) else (zapis_bazy if isinstance(zapis_bazy, str) else None)
             
             obecne_elo = int(gracz.get('elo', 0)) if str(gracz.get('elo', '')).isdigit() else 0
             obecny_level = int(gracz.get('poziom', 0)) if str(gracz.get('poziom', '')).isdigit() else 0
 
             if zapisany_match_id != aktualny_match_id:
-                if p_id in mecze_baza:
-                    stare_elo = zapis_bazy.get("elo") if isinstance(zapis_bazy, dict) else None
-                    stary_level = zapis_bazy.get("poziom") if isinstance(zapis_bazy, dict) else None
+                stare_elo = zapis_bazy.get("elo") if isinstance(zapis_bazy, dict) else None
+                stary_level = zapis_bazy.get("poziom") if isinstance(zapis_bazy, dict) else None
 
-                    if stare_elo is not None and obecne_elo == stare_elo:
-                        retry_count = zapis_bazy.get("retry_count", 0) if isinstance(zapis_bazy, dict) else 0
-                        if retry_count < 3:
-                            mecze_baza[p_id] = {"match_id": zapisany_match_id, "elo": stare_elo, "poziom": stary_level, "retry_count": retry_count + 1}
-                            zmieniono_baze = True
-                            continue
+                if stare_elo is not None and obecne_elo == stare_elo:
+                    retry_count = zapis_bazy.get("retry_count", 0) if isinstance(zapis_bazy, dict) else 0
+                    if retry_count < 3:
+                        mecze_baza[p_id] = {
+                            "match_id": zapisany_match_id, # Zachowujemy stary match_id podczas retry!
+                            "elo": stare_elo, 
+                            "poziom": stary_level, 
+                            "retry_count": retry_count + 1
+                        }
+                        zmieniono_baze = True
+                        print(f"⏳ Czekam na aktualizację ELO dla {gracz['nick']} (Mecz: {aktualny_match_id}, Próba: {retry_count + 1}/3)")
+                        continue
 
-                    # Zapisujemy status meczu i liczymy różnicę ELO
-                    win = mecz['win']
-                    elo_gain = 0
-                    if stare_elo and obecne_elo > 0 and stare_elo > 0:
-                        elo_gain = obecne_elo - stare_elo
+                # Zapisujemy status meczu i liczymy różnicę ELO
+                win = mecz['win']
+                elo_gain = 0
+                if stare_elo and obecne_elo > 0 and stare_elo > 0:
+                    elo_gain = obecne_elo - stare_elo
 
-                    stary_streak = tilt_baza.get(p_id, 0)
-                    nowy_streak = (max(0, stary_streak) + 1) if win else (min(0, stary_streak) - 1)
-                    tilt_baza[p_id] = nowy_streak
-                    zmieniono_tilt = True
+                stary_streak = tilt_baza.get(p_id, 0)
+                nowy_streak = (max(0, stary_streak) + 1) if win else (min(0, stary_streak) - 1)
+                tilt_baza[p_id] = nowy_streak
+                zmieniono_tilt = True
+                
+                guilds_to_notify = all_guilds_players.get(p_id, [])
+                for g_id, d_id in guilds_to_notify:
+                    guilds_to_update.add(g_id)
+                    guild = self.bot.get_guild(g_id)
+                    if not guild: continue
+                    ust = wczytaj_ustawienia(g_id)
+                    kanal_id = ust.get("kanal_eventow")
+                    if not kanal_id: continue
                     
-                    guilds_to_notify = all_guilds_players.get(p_id, [])
-                    for g_id, d_id in guilds_to_notify:
-                        guilds_to_update.add(g_id)
-                        guild = self.bot.get_guild(g_id)
-                        if not guild: continue
-                        ust = wczytaj_ustawienia(g_id)
-                        kanal_id = ust.get("kanal_eventow")
-                        if not kanal_id: continue
-                        kanal = self.bot.get_channel(int(kanal_id))
-                        if not kanal: continue
+                    try:
+                        kanal = self.bot.get_channel(int(kanal_id)) or await self.bot.fetch_channel(int(kanal_id))
+                    except Exception as e:
+                        print(f"❌ Błąd pobierania kanału {kanal_id} w gildii {g_id}: {e}")
+                        continue
 
-                        tilt_limit = ust.get("tilt_limit", 3)
-                        elo_tekst = f"**{obecne_elo}**"
-                        if elo_gain != 0:
-                            elo_tekst += f" *({'+' if elo_gain > 0 else ''}{elo_gain} ELO)*"
+                    if not kanal: continue
 
-                        hltv = float(mecz.get('hltv', 0))
-                        if hltv >= 1.30: ocena = "BESTIA"
-                        elif hltv >= 1.10: ocena = "Bardzo dobrze"
-                        elif hltv >= 0.90: ocena = "Solidnie"
-                        elif hltv >= 0.70: ocena = "Słabo"
-                        else: ocena = "BOT"
+                    tilt_limit = ust.get("tilt_limit", 3)
+                    elo_tekst = f"**{obecne_elo}**"
+                    if elo_gain != 0:
+                        elo_tekst += f" *({'+' if elo_gain > 0 else ''}{elo_gain} ELO)*"
 
-                        heading_roast = None
-                        if stary_level and obecny_level != stary_level and stary_level > 0:
-                            if obecny_level > stary_level: heading_roast = random.choice(get_cfg(g_id, 'awans_texts', config.AWANS_TEXTS))
-                            else: heading_roast = random.choice(get_cfg(g_id, 'spadek_texts', config.SPADEK_TEXTS))
-                        else:
-                            pula = []
-                            if hltv >= 1.30: pula.extend(get_cfg(g_id, 'hltv_beast_texts', config.HLTV_BEAST_TEXTS))
-                            elif hltv < 0.70: pula.extend(get_cfg(g_id, 'hltv_bot_texts', config.HLTV_BOT_TEXTS))
-                            if tilt_limit and str(tilt_limit).lower() != "off" and abs(nowy_streak) >= int(tilt_limit):
-                                if nowy_streak < 0: pula.extend(get_cfg(g_id, 'lose_streak_texts', config.LOSE_STREAK_TEXTS))
-                                else: pula.extend(get_cfg(g_id, 'win_streak_texts', config.WIN_STREAK_TEXTS))
-                            if pula: heading_roast = random.choice(pula)
+                    hltv = float(mecz.get('hltv', 0))
+                    if hltv >= 1.30: ocena = "BESTIA"
+                    elif hltv >= 1.10: ocena = "Bardzo dobrze"
+                    elif hltv >= 0.90: ocena = "Solidnie"
+                    elif hltv >= 0.70: ocena = "Słabo"
+                    else: ocena = "BOT"
 
-                        details = []
-                        if stary_level and obecny_level != stary_level and stary_level > 0:
-                            details.append(f"{'wbija' if obecny_level > stary_level else 'spada na'} **{obecny_level} LEVEL**")
+                    heading_roast = None
+                    if stary_level and obecny_level != stary_level and stary_level > 0:
+                        if obecny_level > stary_level: heading_roast = random.choice(get_cfg(g_id, 'awans_texts', config.AWANS_TEXTS))
+                        else: heading_roast = random.choice(get_cfg(g_id, 'spadek_texts', config.SPADEK_TEXTS))
+                    else:
+                        pula = []
+                        if hltv >= 1.30: pula.extend(get_cfg(g_id, 'hltv_beast_texts', config.HLTV_BEAST_TEXTS))
+                        elif hltv < 0.70: pula.extend(get_cfg(g_id, 'hltv_bot_texts', config.HLTV_BOT_TEXTS))
                         if tilt_limit and str(tilt_limit).lower() != "off" and abs(nowy_streak) >= int(tilt_limit):
-                            details.append(f"{'wygrywa' if win else 'przegrywa'} **{abs(nowy_streak)}** mecz z rzędu")
-                        
-                        alert_msg = f"**{heading_roast}**\n<@{d_id}> {' i '.join(details or [f'kończy z HLTV **{hltv:.2f}**'])}!" if heading_roast else None
-                        emotki = get_cfg(g_id, "level_emojis", config.LEVEL_EMOJIS)
-                        lvl_e = emotki.get(str(obecny_level), get_cfg(g_id, "level_default", config.LEVEL_DEFAULT))
+                            if nowy_streak < 0: pula.extend(get_cfg(g_id, 'lose_streak_texts', config.LOSE_STREAK_TEXTS))
+                            else: pula.extend(get_cfg(g_id, 'win_streak_texts', config.WIN_STREAK_TEXTS))
+                        if pula: heading_roast = random.choice(pula)
 
-                        embed = discord.Embed(
-                            title=f"{'WYGRANA' if win else 'PRZEGRANA'}: Mecz na {mecz['mapa']} ({mecz['wynik']})",
-                            description=f"{lvl_e} **{gracz['nick']}** | **{ocena}** (HLTV: **{hltv:.2f}**)\nBieżące punkty: {elo_tekst}",
-                            color=0x00FF00 if win else 0xFF0000
-                        )
-                        mk = []
-                        if mecz.get('triple_kills', 0) > 0: mk.append(f"3k: **{mecz['triple_kills']}**")
-                        if mecz.get('quadro_kills', 0) > 0: mk.append(f"4k: **{mecz['quadro_kills']}**")
-                        if mecz.get('penta_kills', 0) > 0: mk.append(f"**ACE**")
-                        
-                        embed.add_field(name="Rezultaty Strzeleckie", value=f"K/D/A: **{int(mecz['kille'])}/{int(mecz['dedy'])}/{int(mecz['asysty'])}**\nK/D Ratio: **{mecz['kd']}**\nEntry: **{int(mecz.get('entry_wins',0))}** ({int(mecz.get('entry_success',0))}%)\nADR: **{mecz['adr']}**{f'\nMulti: {", ".join(mk)}' if mk else ''}", inline=True)
-                        extra = f"\nSnajper: **{mecz['sniper_kills']}** killi" if mecz.get('sniper_kills', 0) >= 5 else (f"\nFlash: **{int(mecz.get('flash_success',0))}%**" if int(mecz.get('flash_success',0)) > 60 else "")
-                        embed.add_field(name="Utility i Zgranie", value=f"Headshoty: **{int(mecz['hs_procent'])}%**\nClutche: **{int(mecz.get('clutch_1v1',0)+mecz.get('clutch_1v2',0))}**\nUtility Dmg: **{int(mecz.get('ud', 0))}**\nMVPs: **{int(mecz['mvp'])}**{extra}", inline=True)
-                        embed.set_thumbnail(url=gracz['avatar_url'])
-                        try:
-                            await kanal.send(embed=embed)
-                            if alert_msg: await kanal.send(content=alert_msg)
-                        except (discord.Forbidden, discord.NotFound, discord.HTTPException): 
-                            pass
+                    details = []
+                    if stary_level and obecny_level != stary_level and stary_level > 0:
+                        details.append(f"{'wbija' if obecny_level > stary_level else 'spada na'} **{obecny_level} LEVEL**")
+                    if tilt_limit and str(tilt_limit).lower() != "off" and abs(nowy_streak) >= int(tilt_limit):
+                        details.append(f"{'wygrywa' if win else 'przegrywa'} **{abs(nowy_streak)}** mecz z rzędu")
+                    
+                    alert_msg = f"**{heading_roast}**\n<@{d_id}> {' i '.join(details or [f'kończy z HLTV **{hltv:.2f}**'])}!" if heading_roast else None
+                    emotki = get_cfg(g_id, "level_emojis", config.LEVEL_EMOJIS)
+                    lvl_e = emotki.get(str(obecny_level), get_cfg(g_id, "level_default", config.LEVEL_DEFAULT))
+
+                    embed = discord.Embed(
+                        title=f"{'WYGRANA' if win else 'PRZEGRANA'}: Mecz na {mecz['mapa']} ({mecz['wynik']})",
+                        description=f"{lvl_e} **{gracz['nick']}** | **{ocena}** (HLTV: **{hltv:.2f}**)\nBieżące punkty: {elo_tekst}",
+                        color=0x00FF00 if win else 0xFF0000
+                    )
+                    mk = []
+                    if mecz.get('triple_kills', 0) > 0: mk.append(f"3k: **{mecz['triple_kills']}**")
+                    if mecz.get('quadro_kills', 0) > 0: mk.append(f"4k: **{mecz['quadro_kills']}**")
+                    if mecz.get('penta_kills', 0) > 0: mk.append(f"**ACE**")
+                    
+                    embed.add_field(name="Rezultaty Strzeleckie", value=f"K/D/A: **{int(mecz['kille'])}/{int(mecz['dedy'])}/{int(mecz['asysty'])}**\nK/D Ratio: **{mecz['kd']}**\nEntry: **{int(mecz.get('entry_wins',0))}** ({int(mecz.get('entry_success',0))}%)\nADR: **{mecz['adr']}**{f'\nMulti: {", ".join(mk)}' if mk else ''}", inline=True)
+                    extra = f"\nSnajper: **{mecz['sniper_kills']}** killi" if mecz.get('sniper_kills', 0) >= 5 else (f"\nFlash: **{int(mecz.get('flash_success',0))}%**" if int(mecz.get('flash_success',0)) > 60 else "")
+                    embed.add_field(name="Utility i Zgranie", value=f"Headshoty: **{int(mecz['hs_procent'])}%**\nClutche: **{int(mecz.get('clutch_1v1',0)+mecz.get('clutch_1v2',0))}**\nUtility Dmg: **{int(mecz.get('ud', 0))}**\nMVPs: **{int(mecz['mvp'])}**{extra}", inline=True)
+                    embed.set_thumbnail(url=gracz['avatar_url'])
+                    try:
+                        await kanal.send(embed=embed)
+                        if alert_msg: await kanal.send(content=alert_msg)
+                        print(f"✅ Wysłano powiadomienie o meczu {aktualny_match_id} dla {gracz['nick']} na kanał {kanal_id}")
+                    except Exception as e:
+                        print(f"❌ Błąd wysyłania powiadomienia na kanał {kanal_id}: {e}")
 
                 # Zapis stanu i historii
                 mecze_baza[p_id] = {"match_id": aktualny_match_id, "elo": obecne_elo, "poziom": obecny_level}
                 
                 # ZAPIS DO HISTORII (DLA WYKRESÓW)
                 try:
-                    # win i elo_gain są już zdefiniowane powyżej
                     await asyncio.to_thread(zapisz_historie_meczu, aktualny_match_id, p_id, mecz, obecne_elo, win, elo_gain, mecz.get('finished_at'))
                 except Exception as e:
-                    print(f"Błąd zapisu historii meczu: {e}")
+                    print(f"❌ Błąd zapisu historii meczu: {e}")
                 
                 # Sprawdzenie rekordów (Hala Sław / Wstydu)
                 records_cog = self.bot.get_cog("RecordsCog")
@@ -279,7 +289,7 @@ class TrackerCog(commands.Cog):
                         try:
                             await records_cog.check_and_announce(g_id, d_id, p_id, aktualny_match_id, mecz, win)
                         except Exception as e:
-                            print(f"Błąd sprawdzania rekordów dla {p_id} w gildii {g_id}: {e}")
+                            print(f"❌ Błąd sprawdzania rekordów dla {p_id} w gildii {g_id}: {e}")
 
                 zmieniono_baze = True
                 

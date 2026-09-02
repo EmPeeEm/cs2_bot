@@ -30,6 +30,7 @@ async def get_faceit_data(endpoint: str):
         async with session.get(f"{BASE_URL}/{endpoint}", headers=headers) as response:
             if response.status == 200:
                 return await response.json()
+            print(f"⚠️ Faceit API Error (Status {response.status}) dla endpointu: {endpoint}")
             return None
     except aiohttp.ClientError as e:
         print(f"Faceit API Connection Error: {e}")
