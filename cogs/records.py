@@ -305,6 +305,10 @@ def get_season_mvps(guild_id):
         SELECT id, name, archive_data
         FROM seasons
         WHERE guild_id = ? AND is_active = 0
+          AND archive_data IS NOT NULL
+          AND archive_data != ''
+          AND archive_data != '{}'
+          AND archive_data != '[]'
         ORDER BY id ASC
     """
     try:
@@ -314,14 +318,14 @@ def get_season_mvps(guild_id):
             rows = cursor.fetchall()
             
         seasons_list = []
-        for i, (s_id, s_name, archive_json) in enumerate(rows, 1):
+        for s_id, s_name, archive_json in rows:
             if archive_json:
                 try:
                     archive = json.loads(archive_json)
                     if isinstance(archive, list) and len(archive) > 0:
                         mvp = archive[0]
                         seasons_list.append({
-                            "nr": i,
+                            "nr": len(seasons_list) + 1,
                             "nazwa": s_name,
                             "discord_id": mvp.get("discord_id"),
                             "nick": mvp.get("nick"),
@@ -545,7 +549,7 @@ class RecordsCog(commands.Cog):
         
         try:
             # Tworzymy nowy kanał
-            new_channel = await ctx.guild.create_text_channel(name="🏆-hala-sław", overwrites=overwrites)
+            new_channel = await ctx.guild.create_text_channel(name="🏆・hala-sław", overwrites=overwrites)
             
             # Nagłówek główny
             header_embed = discord.Embed(
