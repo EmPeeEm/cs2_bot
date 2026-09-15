@@ -10,34 +10,34 @@ import config
 
 CATEGORIES = {
     "max_kills": {
-        "title": "👑 Najwięcej killi (Mecz)",
+        "title": "👑 Najwięcej killi (Mecz bez OT)",
         "col": "kills",
         "func": "MAX",
         "unit": "killi",
         "is_bad": False,
         "texts_key": "RECORD_KILLS_TEXTS",
         "tie_texts_key": "RECORD_KILLS_TIE_TEXTS",
-        "extra_where": ""
+        "extra_where": "AND m.rounds >= 13 AND m.rounds <= 24"
     },
     "max_hltv": {
-        "title": "⭐ Najwyższe HLTV (Mecz)",
+        "title": "⭐ Najwyższe HLTV (Mecz bez OT)",
         "col": "hltv",
         "func": "MAX",
         "unit": "HLTV",
         "is_bad": False,
         "texts_key": "RECORD_HLTV_TEXTS",
         "tie_texts_key": "RECORD_HLTV_TIE_TEXTS",
-        "extra_where": ""
+        "extra_where": "AND m.rounds >= 13 AND m.rounds <= 24"
     },
     "max_ud": {
-        "title": "💣 Najwyższe Utility Damage",
+        "title": "💣 Najwyższe Utility Damage (Mecz bez OT)",
         "col": "ud",
         "func": "MAX",
         "unit": "UD",
         "is_bad": False,
         "texts_key": "RECORD_UD_TEXTS",
         "tie_texts_key": "RECORD_UD_TIE_TEXTS",
-        "extra_where": ""
+        "extra_where": "AND m.rounds >= 13 AND m.rounds <= 24"
     },
     "max_winstreak": {
         "title": "🔥 Najdłuższa seria zwycięstw (Winstreak)",
@@ -48,34 +48,34 @@ CATEGORIES = {
         "is_custom": True
     },
     "min_kills": {
-        "title": "🐌 Najmniej killi (Pełen mecz)",
+        "title": "🐌 Najmniej killi (Pełen mecz bez OT)",
         "col": "kills",
         "func": "MIN",
         "unit": "killi",
         "is_bad": True,
         "texts_key": "RECORD_LOW_KILLS_TEXTS",
         "tie_texts_key": "RECORD_LOW_KILLS_TIE_TEXTS",
-        "extra_where": "AND m.rounds >= 13"
+        "extra_where": "AND m.rounds >= 13 AND m.rounds <= 24"
     },
     "min_hltv": {
-        "title": "🤖 Najniższe HLTV (Mecz)",
+        "title": "🤖 Najniższe HLTV (Mecz bez OT)",
         "col": "hltv",
         "func": "MIN",
         "unit": "HLTV",
         "is_bad": True,
         "texts_key": "RECORD_LOW_HLTV_TEXTS",
         "tie_texts_key": "RECORD_LOW_HLTV_TIE_TEXTS",
-        "extra_where": ""
+        "extra_where": "AND m.rounds >= 13 AND m.rounds <= 24"
     },
     "max_deaths": {
-        "title": "💀 Najwięcej zgonów (Mecz)",
+        "title": "💀 Najwięcej zgonów (Mecz bez OT)",
         "col": "deaths",
         "func": "MAX",
         "unit": "zgonów",
         "is_bad": True,
         "texts_key": "RECORD_DEATHS_TEXTS",
         "tie_texts_key": "RECORD_DEATHS_TIE_TEXTS",
-        "extra_where": ""
+        "extra_where": "AND m.rounds >= 13 AND m.rounds <= 24"
     },
     "max_lossstreak": {
         "title": "❄️ Najdłuższa seria porażek (Loss-streak)",
@@ -394,7 +394,7 @@ class RecordsCog(commands.Cog):
             embed.description = value_str
             return embed
 
-        # Standardowe kategorie meczowe
+        # Standardowe kategorie meczowe (bez OT)
         val = get_extreme_value(guild_id, category)
         color = 0x00FF00 if not cat_info["is_bad"] else 0xFF0000
         embed = discord.Embed(
@@ -403,7 +403,7 @@ class RecordsCog(commands.Cog):
         )
         
         if val is None:
-            value_str = "*Brak rekordów*"
+            value_str = "*Brak rekordów (mecze bez OT)*"
         else:
             holders = get_record_holders(guild_id, category, val)
             formatted_val = f"{val:.2f}" if isinstance(val, float) else str(val)
@@ -428,7 +428,7 @@ class RecordsCog(commands.Cog):
         # Fallback na wypadek gdyby pojedyncza wiadomość była wciąż używana
         embed = discord.Embed(
             title="🏆 REKORDY SERWERA: HALA SŁAW I WSTYDU",
-            description="Tutaj zobaczysz rekordy wszech czasów graczy naszej ekipy.\n*Wszystkie statystyki pobierane automatycznie z bazy danych.*",
+            description="Tutaj zobaczysz rekordy wszech czasów graczy naszej ekipy (mecze bez OT).\n*Wszystkie statystyki pobierane automatycznie z bazy danych.*",
             color=get_cfg(guild_id, "main_color", 0xFF5500)
         )
         
@@ -552,7 +552,7 @@ class RecordsCog(commands.Cog):
             # Nagłówek główny
             header_embed = discord.Embed(
                 title="🏆 TABLICA REKORDÓW WSZECH CZASÓW",
-                description="Statystyki są pobierane automatycznie po każdym meczu z bazy danych Faceit.\nKażdy rekord poniżej ma swoją dedykowaną kartę.",
+                description="Statystyki są pobierane automatycznie po każdym meczu z bazy danych Faceit (mecze bez dogrywki OT).\nKażdy rekord poniżej ma swoją dedykowaną kartę.",
                 color=get_cfg(guild_id, "main_color", 0xFF5500)
             )
             await new_channel.send(embed=header_embed)
@@ -602,86 +602,83 @@ class RecordsCog(commands.Cog):
         any_change = False
         announcements = []
         
-        # 1. Sprawdzenie standardowych kategorii
-        for category, cat_info in CATEGORIES.items():
-            if cat_info.get("is_custom"):
-                continue
-                
-            # Ograniczenie dla min_kills
-            if category == "min_kills" and rounds < 13:
-                continue
-                
-            new_val = self.extract_new_value(category, stats)
-            if new_val is None:
-                continue
-                
-            prev_val = get_extreme_value_excluding(guild_id, category, match_id)
-            
-            is_broken = False
-            is_tied = False
-            
-            if prev_val is None:
-                # Brak dotychczasowego rekordu (pierwszy mecz w bazie)
-                is_broken = True
-            else:
-                if cat_info["func"] == "MAX":
-                    if new_val > prev_val:
-                        is_broken = True
-                    elif new_val == prev_val:
-                        is_tied = True
-                else:  # MIN
-                    if new_val < prev_val:
-                        is_broken = True
-                    elif new_val == prev_val:
-                        is_tied = True
-                        
-            if is_broken or is_tied:
-                existing_holders = get_record_holders(guild_id, category, new_val)
-                player_already_holder = any(h["discord_id"] == str(discord_id) and h["match_id"] == str(match_id) for h in existing_holders)
-                
-                if player_already_holder:
+        # 1. Sprawdzenie standardowych kategorii meczowych (tylko mecze bez dogrywki: 13 do 24 rund)
+        if 13 <= rounds <= 24:
+            for category, cat_info in CATEGORIES.items():
+                if cat_info.get("is_custom"):
                     continue
                     
-                any_change = True
-                gracz_mention = f"<@{discord_id}>"
-                formatted_val = f"{new_val:.2f}" if isinstance(new_val, float) else str(new_val)
-                mapa = stats.get('mapa', 'Nieznana')
-                wynik_meczu = stats.get('wynik', '0-0')
+                new_val = self.extract_new_value(category, stats)
+                if new_val is None:
+                    continue
+                    
+                prev_val = get_extreme_value_excluding(guild_id, category, match_id)
                 
-                if is_broken:
-                    texts_key = cat_info["texts_key"]
-                    pula = get_cfg(guild_id, texts_key.lower(), getattr(config, texts_key))
-                    if pula:
-                        msg_template = random.choice(pula)
-                        msg_text = msg_template.format(
-                            gracz=gracz_mention,
-                            wynik=formatted_val,
-                            mapa=mapa,
-                            wynik_meczu=wynik_meczu
-                        )
-                        announcements.append(msg_text)
-                    else:
-                        announcements.append(
-                            f"🏆 **NOWY REKORD!** {gracz_mention} pobił rekord w kategorii **{cat_info['title']}** osiągając wynik **{formatted_val}** na mapie **{mapa}** ({wynik_meczu})!"
-                        )
-                elif is_tied:
-                    tie_texts_key = cat_info["tie_texts_key"]
-                    pula = get_cfg(guild_id, tie_texts_key.lower(), getattr(config, tie_texts_key))
-                    if pula:
-                        msg_template = random.choice(pula)
-                        msg_text = msg_template.format(
-                            gracz=gracz_mention,
-                            wynik=formatted_val,
-                            mapa=mapa,
-                            wynik_meczu=wynik_meczu
-                        )
-                        announcements.append(msg_text)
-                    else:
-                        announcements.append(
-                            f"🤝 **WYRÓWNANIE REKORDU!** {gracz_mention} wyrównał rekord w kategorii **{cat_info['title']}** osiągając wynik **{formatted_val}** na mapie **{mapa}** ({wynik_meczu})!"
-                        )
+                is_broken = False
+                is_tied = False
+                
+                if prev_val is None:
+                    # Brak dotychczasowego rekordu (pierwszy mecz w bazie)
+                    is_broken = True
+                else:
+                    if cat_info["func"] == "MAX":
+                        if new_val > prev_val:
+                            is_broken = True
+                        elif new_val == prev_val:
+                            is_tied = True
+                    else:  # MIN
+                        if new_val < prev_val:
+                            is_broken = True
+                        elif new_val == prev_val:
+                            is_tied = True
+                            
+                if is_broken or is_tied:
+                    existing_holders = get_record_holders(guild_id, category, new_val)
+                    player_already_holder = any(h["discord_id"] == str(discord_id) and h["match_id"] == str(match_id) for h in existing_holders)
+                    
+                    if player_already_holder:
+                        continue
+                        
+                    any_change = True
+                    gracz_mention = f"<@{discord_id}>"
+                    formatted_val = f"{new_val:.2f}" if isinstance(new_val, float) else str(new_val)
+                    mapa = stats.get('mapa', 'Nieznana')
+                    wynik_meczu = stats.get('wynik', '0-0')
+                    
+                    if is_broken:
+                        texts_key = cat_info["texts_key"]
+                        pula = get_cfg(guild_id, texts_key.lower(), getattr(config, texts_key))
+                        if pula:
+                            msg_template = random.choice(pula)
+                            msg_text = msg_template.format(
+                                gracz=gracz_mention,
+                                wynik=formatted_val,
+                                mapa=mapa,
+                                wynik_meczu=wynik_meczu
+                            )
+                            announcements.append(msg_text)
+                        else:
+                            announcements.append(
+                                f"🏆 **NOWY REKORD!** {gracz_mention} pobił rekord w kategorii **{cat_info['title']}** osiągając wynik **{formatted_val}** na mapie **{mapa}** ({wynik_meczu})!"
+                            )
+                    elif is_tied:
+                        tie_texts_key = cat_info["tie_texts_key"]
+                        pula = get_cfg(guild_id, tie_texts_key.lower(), getattr(config, tie_texts_key))
+                        if pula:
+                            msg_template = random.choice(pula)
+                            msg_text = msg_template.format(
+                                gracz=gracz_mention,
+                                wynik=formatted_val,
+                                mapa=mapa,
+                                wynik_meczu=wynik_meczu
+                            )
+                            announcements.append(msg_text)
+                        else:
+                            announcements.append(
+                                f"🤝 **WYRÓWNANIE REKORDU!** {gracz_mention} wyrównał rekord w kategorii **{cat_info['title']}** osiągając wynik **{formatted_val}** na mapie **{mapa}** ({wynik_meczu})!"
+                            )
 
-        # 2. Sprawdzenie rekordów serii (Winstreak / Loss-streak)
+        # 2. Sprawdzenie rekordów serii (Winstreak / Loss-streak - tu liczą się wszystkie mecze)
         streak_data_prev = get_streak_records(guild_id, exclude_match_id=match_id)
         streak_data_now = get_streak_records(guild_id)
         
