@@ -70,8 +70,10 @@ async def get_latest_match_id(player_id: str):
 try:
     from curl_cffi.requests import AsyncSession as CurlAsyncSession
     HAS_CURL_CFFI = True
-except ImportError:
+    print("✅ [FACEIT API] curl_cffi załadowane pomyślnie (ochrona Cloudflare aktywna)")
+except ImportError as e:
     HAS_CURL_CFFI = False
+    print(f"⚠️ [FACEIT API] Brak biblioteki curl_cffi ({e}) - zainstaluj 'pip install curl_cffi', aby ominąć blokadę Cloudflare (403) na VPS!")
 
 async def get_player_ongoing_match_id(player_id: str):
     """Sprawdza czy gracz jest w aktywnym meczu (obsługuje endpointy Faceit groupByState oraz Open API)"""
