@@ -85,7 +85,7 @@ class LiveMatchesCog(commands.Cog):
                         "finished_at": current_active.get(match_id, {}).get("finished_at")
                     }
             except Exception as e:
-                print(f"Błąd podczas sprawdzania gracza {player_id}: {e}")
+                print(f"⚠️ [LIVE] Błąd podczas sprawdzania gracza {player_id}: {e}")
 
         # 2. Aktualizujemy stan i obsługujemy zakończenie meczu
         now = time.time()
@@ -303,6 +303,7 @@ class LiveMatchesCog(commands.Cog):
 
         channel = guild.get_channel(int(kanal_id))
         if not channel:
+            print(f"⚠️ [LIVE] Nie znaleziono kanału o ID {kanal_id} w gildii {guild_id}")
             return
 
         active = await self._fetch_guild_active_matches(guild_id)
@@ -324,8 +325,10 @@ class LiveMatchesCog(commands.Cog):
 
             if current_name != target_name:
                 await channel.edit(name=target_name)
-        except (discord.Forbidden, discord.HTTPException):
-            pass
+        except discord.Forbidden:
+            print(f"⚠️ [LIVE] Bot nie ma uprawnienia 'Zarządzanie kanałami' (Manage Channels), aby zmienić nazwę kanału {channel.id}")
+        except Exception as e:
+            print(f"⚠️ [LIVE] Błąd zmiany nazwy kanału {channel.id}: {e}")
 
         msg_id = ustawienia.get("live_msg_id")
         msg = None
@@ -334,7 +337,7 @@ class LiveMatchesCog(commands.Cog):
                 msg = await channel.fetch_message(int(msg_id))
                 await msg.edit(embed=embed, view=view)
                 return
-            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            except (discord.NotFound, discord.HTTPException):
                 msg = None
 
         # Jeśli wiadomości nie ma lub usunięto, wysyłamy nową i zapisujemy ID
@@ -342,8 +345,10 @@ class LiveMatchesCog(commands.Cog):
             nowa_wiadomosc = await channel.send(embed=embed, view=view)
             ustawienia["live_msg_id"] = nowa_wiadomosc.id
             zapisz_ustawienia(guild_id, ustawienia)
-        except (discord.Forbidden, discord.HTTPException):
-            pass
+        except discord.Forbidden:
+            print(f"⚠️ [LIVE] Brak uprawnień do wysłania wiadomości na kanale {channel.id}")
+        except Exception as e:
+            print(f"⚠️ [LIVE] Błąd wysyłania wiadomości live na kanale {channel.id}: {e}")
 
     @tasks.loop(seconds=35)
     async def live_monitor(self):

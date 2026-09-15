@@ -72,8 +72,10 @@ async def get_player_ongoing_match_id(player_id: str):
                         m_id = matches[0].get("id") or matches[0].get("matchId")
                         if m_id:
                             return m_id
-    except Exception:
-        pass
+            elif resp.status != 404:
+                print(f"⚠️ [LIVE API] groupByState status {resp.status} dla {player_id}")
+    except Exception as e:
+        print(f"⚠️ [LIVE API] Błąd groupByState dla {player_id}: {e}")
 
     # 2. Fallback: Open Data API history
     try:
