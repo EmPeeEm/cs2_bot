@@ -1,10 +1,10 @@
-# cogs/season_ui.py
+import json
 import discord
 from discord.ext import commands
 from utils.database import (
     wczytaj_sezon, zapisz_sezon, zakoncz_sezon, 
     pobierz_ostatni_zakonczony_sezon, zaktualizuj_leaderboard_msg_id,
-    wczytaj_ekipe, wczytaj_ustawienia, get_cfg
+    wczytaj_ekipe, wczytaj_ustawienia, get_cfg, get_connection
 )
 from utils.faceit_api import get_player_stats
 import config
@@ -277,6 +277,83 @@ class SeasonUICog(commands.Cog):
         zaktualizuj_leaderboard_msg_id(guild_id, nowa_wiadomosc.id, cel.id)
 
         await status_msg.edit(content="✅ Tabela sezonu została pomyślnie wysłana na nowo na dedykowanym kanale, a poprzednia usunięta!")
+
+    @commands.command(name="sezony", aliases=["sezon_lista", "seasons"])
+    @commands.has_permissions(administrator=True)
+    async def cmd_sezony_lista(self, ctx):
+        """Wyświetla listę wszystkich sezonów w bazie danych."""
+        guild_id = str(ctx.guild.id)
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id, name, is_active, archive_data FROM seasons WHERE guild_id = ? ORDER BY id ASC", (guild_id,))
+            rows = cursor.fetchall()
+            
+        if not rows:
+            await ctx.send("ℹ️ Brak zarejestrowanych sezonów dla tego serwera.")
+            return
+            
+        embed = discord.Embed(
+            title="📜 Lista Sezonów ELO",
+            color=get_cfg(ctx.guild.id, "main_color", 0x2b2d31)
+        )
+        lines = []
+        for s_id, s_name, is_active, archive_json in rows:
+            status = "🟢 [AKTYWNY]" if is_active else "🏁 [ZAKOŃCZONY]"
+            mvp_info = "Brak MVP"
+            if archive_json:
+                try:
+                    archive = json.loads(archive_json)
+                    if isinstance(archive, list) and len(archive) > 0:
+                        mvp = archive[0]
+                        d_id = mvp.get("discord_id")
+                        progres = mvp.get("progres", 0)
+                        znak = "+" if progres > 0 else ""
+                        mvp_info = f"<@{d_id}> ({znak}{progres} ELO)"
+                except Exception:
+                    pass
+            lines.append(f"`ID: {s_id}` **{s_name}** • {status} • MVP: {mvp_info}")
+            
+        embed.description = "\n".join(lines)
+        embed.set_footer(text=f"Aby przypisać MVP: {ctx.prefix}sezon_set_mvp <ID> @gracz <progres_elo>")
+        await ctx.send(embed=embed)
+
+    @commands.command(name="sezon_set_mvp", aliases=["sezon_ustaw_mvp", "set_season_mvp"])
+    @commands.has_permissions(administrator=True)
+    async def cmd_sezon_set_mvp(self, ctx, id_lub_nazwa: str, member: discord.Member, progres_elo: int = 0):
+        """Ręcznie przypisuje/poprawia MVP dla archiwalnego sezonu."""
+        guild_id = str(ctx.guild.id)
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            if id_lub_nazwa.isdigit():
+                cursor.execute("SELECT id, name FROM seasons WHERE guild_id = ? AND id = ?", (guild_id, int(id_lub_nazwa)))
+            else:
+                cursor.execute("SELECT id, name FROM seasons WHERE guild_id = ? AND LOWER(name) = LOWER(?)", (guild_id, id_lub_nazwa))
+            row = cursor.fetchone()
+            
+            if not row:
+                await ctx.send(f"❌ Nie znaleziono sezonu `{id_lub_nazwa}`. Użyj `{ctx.prefix}sezony`, aby sprawdzić listę ID.")
+                return
+                
+            s_id, s_name = row
+            archive_data = json.dumps([{
+                "discord_id": str(member.id),
+                "nick": member.display_name,
+                "progres": progres_elo,
+                "obecne": 0
+            }])
+            cursor.execute("UPDATE seasons SET archive_data = ?, is_active = 0 WHERE id = ?", (archive_data, s_id))
+            conn.commit()
+            
+        # Aktualizacja tablicy rekordów / Hali Sław
+        records_cog = self.bot.get_cog("RecordsCog")
+        if records_cog:
+            try:
+                await records_cog.update_records_board(ctx.guild.id)
+            except Exception as e:
+                print(f"Błąd aktualizacji Hali Sław: {e}")
+                
+        znak = "+" if progres_elo > 0 else ""
+        await ctx.send(f"✅ Pomyślnie ustawiono MVP dla sezonu **{s_name}** (`ID: {s_id}`): {member.mention} (*{znak}{progres_elo} ELO*)!\n🏆 Karta w Hali Sław została zaktualizowana.")
 
 async def setup(bot):
     await bot.add_cog(SeasonUICog(bot))
