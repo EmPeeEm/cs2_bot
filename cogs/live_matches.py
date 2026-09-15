@@ -23,17 +23,15 @@ STATUS_LABELS = {
 }
 
 class LiveMatchView(discord.ui.View):
-    def __init__(self, match_urls):
+    def __init__(self, match_url, label="Pokój meczowy Faceit"):
         super().__init__(timeout=None)
-        # Dodajemy przyciski z linkami do pokoi meczowych (max 5 przycisków w rzędzie)
-        for i, (label, url) in enumerate(match_urls[:5]):
-            if url:
-                self.add_item(discord.ui.Button(
-                    label=label[:80],
-                    style=discord.ButtonStyle.link,
-                    url=url,
-                    emoji="🎮"
-                ))
+        if match_url:
+            self.add_item(discord.ui.Button(
+                label=label[:80],
+                style=discord.ButtonStyle.link,
+                url=match_url,
+                emoji="🎮"
+            ))
 
 class LiveMatchesCog(commands.Cog):
     def __init__(self, bot):
@@ -41,6 +39,7 @@ class LiveMatchesCog(commands.Cog):
         # active_matches[guild_id] = {match_id: {"details": ..., "our_players": [...], "finished_at": timestamp or None, "fail_count": 0}}
         self.active_matches = {}
         self.channel_rename_history = {} # channel_id -> list of timestamps in last 10m
+        self._locks = {} # guild_id -> asyncio.Lock()
         self.live_monitor.start()
 
     def cog_unload(self):
@@ -187,52 +186,67 @@ class LiveMatchesCog(commands.Cog):
         self.active_matches[guild_id] = updated_active
         return updated_active
 
-    def _build_dashboard_embed(self, guild_id, active_matches):
-        """Buduje bogaty embed z pełnymi informacjami o trwających meczach lub stanem czuwania."""
-        main_color = get_cfg(guild_id, "main_color", 0x2b2d31)
+    def _build_idle_embed(self, guild_id):
+        """Buduje embed informujący o braku aktywnych gier."""
+        now_str = datetime.datetime.now().strftime("%H:%M:%S")
+        embed = discord.Embed(
+            title="🟢 MECZE NA ŻYWO: Brak aktywnych gier",
+            description="*Żaden z zarejestrowanych graczy nie rozgrywa obecnie meczu na Faceicie.*\n\n"
+                        "Gdy ktoś rozpocznie mecz, oddzielna karta spotkania ze składami, ELO i wynikiem na żywo pojawi się tutaj automatycznie.",
+            color=0x2ecc71
+        )
+        embed.set_footer(text=f"Stan na {now_str} • Auto-odświeżanie co ~10s")
+        return embed
+
+    def _build_single_match_embed(self, guild_id, match_id, data):
+        """Buduje bogaty embed dedykowany pojedynczemu meczowi."""
         level_emojis = get_cfg(guild_id, "level_emojis", config.LEVEL_EMOJIS)
         level_default = get_cfg(guild_id, "level_default", config.LEVEL_DEFAULT)
         ekipa = wczytaj_ekipe(guild_id)
         now_str = datetime.datetime.now().strftime("%H:%M:%S")
         now = time.time()
 
-        if not active_matches:
-            embed = discord.Embed(
-                title="🟢 MECZE NA ŻYWO: Brak aktywnych gier",
-                description="*Żaden z zarejestrowanych graczy nie rozgrywa obecnie meczu na Faceicie.*\n\n"
-                            "Gdy ktoś rozpocznie mecz, karta spotkania ze składami, ELO i wynikiem pojawi się tutaj automatycznie.",
-                color=0x2ecc71
-            )
-            embed.set_footer(text=f"Stan na {now_str} • Auto-odświeżanie co ~10s")
-            return embed, None
+        details = data["details"]
+        status = str(details.get("status", "UNKNOWN")).upper()
+        status_text = STATUS_LABELS.get(status, f"Status: {status}")
+        mapa = details.get("mapa", "W trakcie wyboru")
+        
+        # Gracze z naszego serwera w tym meczu
+        our_mentions = [f"<@{d_id}>" for d_id, p_id in data.get("our_players", [])]
+        our_str = " ".join(our_mentions) if our_mentions else "Gracze ekipy"
 
-        has_live = any(
-            str(m["details"].get("status", "")).upper() not in ["FINISHED", "CANCELLED", "ABORTED"]
-            for m in active_matches.values()
-        )
+        # Drużyny i składy
+        teams = details.get("teams", {})
+        f1 = teams.get("faction1", {})
+        f2 = teams.get("faction2", {})
+        f1_roster = f1.get("roster", [])
+        f2_roster = f2.get("roster", [])
 
-        if has_live:
-            embed = discord.Embed(
-                title=f"🔴 TRWAJĄCE MECZE EKIPY ({len(active_matches)})",
-                description="Aktualnie trwające spotkania graczy z naszego serwera na platformie Faceit:",
-                color=0xe74c3c
-            )
+        # Sprawdzamy, w której drużynie grają nasi gracze
+        f1_our_count = sum(1 for p in f1_roster if any(e_pid == p.get("player_id") for e_pid in ekipa.values()))
+        f2_our_count = sum(1 for p in f2_roster if any(e_pid == p.get("player_id") for e_pid in ekipa.values()))
+
+        score = details.get("score", {})
+        s1 = score.get("faction1", 0)
+        s2 = score.get("faction2", 0)
+        total_rounds = s1 + s2
+
+        # Rozpoznanie fazy gry
+        if status in ["ON_GOING", "ONGOING", "LIVE", "MATCH"]:
+            if total_rounds <= 12:
+                half_str = "1. połowa"
+            elif total_rounds <= 24:
+                half_str = "2. połowa"
+            else:
+                half_str = "Dogrywka (OT)"
+        elif status == "PAUSED":
+            half_str = "Pauza"
+        elif status == "FINISHED":
+            half_str = "Mecz zakończony"
+        elif status in ["CANCELLED", "ABORTED"]:
+            half_str = "Mecz anulowany"
         else:
-            embed = discord.Embed(
-                title="🟢 MECZE EKIPY: Zakończone spotkania",
-                description="*Wszystkie mecze dobiegły końca. Karty z wynikami znikną za chwilę:*",
-                color=0x2ecc71
-            )
-
-        match_urls = []
-        thumbnail_set = False
-
-        def _add_safe_field(em, name, value, inline=False):
-            clean_name = str(name or "Brak tytułu")[:256]
-            clean_value = str(value or "Brak danych")
-            if len(clean_value) > 1024:
-                clean_value = clean_value[:1015] + "\n..."
-            em.add_field(name=clean_name, value=clean_value, inline=inline)
+            half_str = "Veto / Łączenie z serwerem"
 
         def format_roster(roster):
             formatted = []
@@ -248,272 +262,369 @@ class LiveMatchesCog(commands.Cog):
                     formatted.append(f"{emoji} {nick}")
             return " • ".join(formatted) if formatted else "*Brak danych o składzie*"
 
-        for match_id, data in active_matches.items():
-            details = data["details"]
-            status = str(details.get("status", "UNKNOWN")).upper()
-            status_text = STATUS_LABELS.get(status, f"Status: {status}")
-            mapa = details.get("mapa", "W trakcie wyboru")
-            
-            # Gracze z naszego serwera w tym meczu
-            our_mentions = [f"<@{d_id}>" for d_id, p_id in data["our_players"]]
-            our_str = " ".join(our_mentions) if our_mentions else "Gracze ekipy"
+        # Logika przypisania "Nasi" vs "Przeciwnicy" do wyeksponowania wyniku
+        embed_color = 0xe74c3c
+        if f1_our_count > 0 and f2_our_count > 0:
+            # Pojedynek wewnętrzny
+            t1_name = f1.get("name", "Drużyna 1")
+            t2_name = f2.get("name", "Drużyna 2")
+            team1_label, team2_label = f"🔹 **{t1_name}:**", f"🔸 **{t2_name}:**"
+            team1_roster, team2_roster = f1_roster, f2_roster
+            t1_stats, t2_stats = f1.get("stats", {}), f2.get("stats", {})
 
-            # Drużyny i składy
-            teams = details.get("teams", {})
-            f1 = teams.get("faction1", {})
-            f2 = teams.get("faction2", {})
-            f1_roster = f1.get("roster", [])
-            f2_roster = f2.get("roster", [])
-
-            # Sprawdzamy, w której drużynie grają nasi gracze
-            f1_our_count = sum(1 for p in f1_roster if any(e_pid == p.get("player_id") for e_pid in ekipa.values()))
-            f2_our_count = sum(1 for p in f2_roster if any(e_pid == p.get("player_id") for e_pid in ekipa.values()))
-
-            score = details.get("score", {})
-            s1 = score.get("faction1", 0)
-            s2 = score.get("faction2", 0)
-            total_rounds = s1 + s2
-
-            # Rozpoznanie fazy gry
-            if status in ["ON_GOING", "ONGOING", "LIVE", "MATCH"]:
-                if total_rounds <= 12:
-                    half_str = "1. połowa"
-                elif total_rounds <= 24:
-                    half_str = "2. połowa"
-                else:
-                    half_str = "Dogrywka (OT)"
-            elif status == "PAUSED":
-                half_str = "Pauza"
-            elif status == "FINISHED":
-                half_str = "Mecz zakończony"
-            elif status in ["CANCELLED", "ABORTED"]:
-                half_str = "Mecz anulowany"
-            else:
-                half_str = "Veto / Łączenie z serwerem"
-
-            # Logika przypisania "Nasi" vs "Przeciwnicy" do wyeksponowania wyniku
-            if f1_our_count > 0 and f2_our_count > 0:
-                # Pojedynek wewnętrzny
-                t1_name = f1.get("name", "Drużyna 1")
-                t2_name = f2.get("name", "Drużyna 2")
-                team1_label, team2_label = f"🔹 **{t1_name}:**", f"🔸 **{t2_name}:**"
-                team1_roster, team2_roster = f1_roster, f2_roster
-                t1_stats, t2_stats = f1.get("stats", {}), f2.get("stats", {})
-
-                if status in ["CANCELLED", "ABORTED"]:
-                    score_header = "# ❌ Mecz anulowany"
-                    sub_badge = "🚫 **Spotkanie anulowane przez Faceit** *(nierozegrane)*"
-                elif status == "FINISHED":
-                    score_header = f"# 🏁 {s1} : {s2}"
-                    sub_badge = "⚔️ **Pojedynek klubowy** • *Koniec spotkania*"
-                elif status in ["ON_GOING", "ONGOING", "LIVE", "MATCH"]:
-                    score_header = f"# 📊 {s1} : {s2}"
-                    sub_badge = f"⚔️ **Pojedynek klubowy** • *{half_str}*"
-                else:
-                    score_header = "# ⏳ Przed meczem"
-                    sub_badge = f"⚔️ **Pojedynek klubowy** • *{half_str}*"
-
-            elif f2_our_count > f1_our_count and f2_our_count > 0:
-                # Nasi są w faction 2
-                our_team_name = f2.get("name", "Nasi")
-                enemy_team_name = f1.get("name", "Przeciwnicy")
-                team1_label, team2_label = f"🔹 **Nasza drużyna ({our_team_name}):**", f"🔸 **Przeciwnicy ({enemy_team_name}):**"
-                team1_roster, team2_roster = f2_roster, f1_roster
-                t1_stats, t2_stats = f2.get("stats", {}), f1.get("stats", {})
-
-                if status in ["CANCELLED", "ABORTED"]:
-                    score_header = "# ❌ Mecz anulowany"
-                    sub_badge = "🚫 **Spotkanie anulowane przez Faceit** *(nierozegrane)*"
-                elif status == "FINISHED":
-                    if s2 > s1:
-                        lead_badge = f"🏆 **Zwycięstwo (+{s2 - s1})**"
-                    elif s2 < s1:
-                        lead_badge = f"💀 **Porażka (-{s1 - s2})**"
-                    else:
-                        lead_badge = "🤝 **Remis**"
-                    score_header = f"# 🏁 {s2} : {s1}"
-                    sub_badge = f"{lead_badge} • *Koniec spotkania*"
-                elif status in ["ON_GOING", "ONGOING", "LIVE", "MATCH"]:
-                    if s2 > s1:
-                        lead_badge = f"🟢 **Prowadzenie (+{s2 - s1})**"
-                    elif s2 < s1:
-                        lead_badge = f"🔴 **Strata (-{s1 - s2})**"
-                    else:
-                        lead_badge = "🟡 **Remis**"
-                    score_header = f"# 📊 {s2} : {s1}"
-                    sub_badge = f"{lead_badge} • *{half_str}*"
-                else:
-                    score_header = "# ⏳ Przed meczem"
-                    sub_badge = f"🟠 **{half_str}**"
-
-            else:
-                # Nasi są w faction 1 (lub domyślnie)
-                our_team_name = f1.get("name", "Nasi")
-                enemy_team_name = f2.get("name", "Przeciwnicy")
-                team1_label, team2_label = f"🔹 **Nasza drużyna ({our_team_name}):**", f"🔸 **Przeciwnicy ({enemy_team_name}):**"
-                team1_roster, team2_roster = f1_roster, f2_roster
-                t1_stats, t2_stats = f1.get("stats", {}), f2.get("stats", {})
-
-                if status in ["CANCELLED", "ABORTED"]:
-                    score_header = "# ❌ Mecz anulowany"
-                    sub_badge = "🚫 **Spotkanie anulowane przez Faceit** *(nierozegrane)*"
-                elif status == "FINISHED":
-                    if s1 > s2:
-                        lead_badge = f"🏆 **Zwycięstwo (+{s1 - s2})**"
-                    elif s1 < s2:
-                        lead_badge = f"💀 **Porażka (-{s2 - s1})**"
-                    else:
-                        lead_badge = "🤝 **Remis**"
-                    score_header = f"# 🏁 {s1} : {s2}"
-                    sub_badge = f"{lead_badge} • *Koniec spotkania*"
-                elif status in ["ON_GOING", "ONGOING", "LIVE", "MATCH"]:
-                    if s1 > s2:
-                        lead_badge = f"🟢 **Prowadzenie (+{s1 - s2})**"
-                    elif s1 < s2:
-                        lead_badge = f"🔴 **Strata (-{s2 - s1})**"
-                    else:
-                        lead_badge = "🟡 **Remis**"
-                    score_header = f"# 📊 {s1} : {s2}"
-                    sub_badge = f"{lead_badge} • *{half_str}*"
-                else:
-                    score_header = "# ⏳ Przed meczem"
-                    sub_badge = f"🟠 **{half_str}**"
-
-            # Statystyki ELO
-            t1_elo = t1_stats.get("rating")
-            t2_elo = t2_stats.get("rating")
-            t1_elo_str = f"{t1_elo} ELO" if t1_elo else "Brak ELO"
-            t2_elo_str = f"{t2_elo} ELO" if t2_elo else "Brak ELO"
-
-            t1_lvl = str(t1_stats.get("skillLevel", {}).get("average", ""))
-            t2_lvl = str(t2_stats.get("skillLevel", {}).get("average", ""))
-            t1_lvl_emoji = level_emojis.get(t1_lvl, "") if t1_lvl else ""
-            t2_lvl_emoji = level_emojis.get(t2_lvl, "") if t2_lvl else ""
-
-            t1_prob = int(round(float(t1_stats.get("winProbability", 0.5)) * 100))
-            t2_prob = int(round(float(t2_stats.get("winProbability", 0.5)) * 100))
-
-            # Czas gry
-            started_at = details.get("started_at")
-            configured_at = details.get("configured_at")
             if status in ["CANCELLED", "ABORTED"]:
-                time_str = "Spotkanie odwołane (nierozegrane)"
+                score_header = "# ❌ Mecz anulowany"
+                sub_badge = "🚫 **Spotkanie anulowane przez Faceit** *(nierozegrane)*"
+                embed_color = 0x95a5a6
             elif status == "FINISHED":
-                if started_at:
-                    start_str = datetime.datetime.fromtimestamp(started_at).strftime("%H:%M")
-                    elapsed_min = int((now - started_at) // 60)
-                    time_str = f"Zakończony (~{elapsed_min} min gry, start: {start_str})"
-                else:
-                    time_str = "Zakończony"
-            elif started_at:
-                elapsed_min = int((now - started_at) // 60)
-                start_str = datetime.datetime.fromtimestamp(started_at).strftime("%H:%M")
-                time_str = f"**{elapsed_min} min** (od {start_str})"
-            elif configured_at:
-                elapsed_min = int((now - configured_at) // 60)
-                time_str = f"Rozgrzewka (od {elapsed_min} min)"
+                score_header = f"# 🏁 {s1} : {s2}"
+                sub_badge = "⚔️ **Pojedynek klubowy** • *Koniec spotkania*"
+                embed_color = 0x3498db
+            elif status in ["ON_GOING", "ONGOING", "LIVE", "MATCH"]:
+                score_header = f"# 📊 {s1} : {s2}"
+                sub_badge = f"⚔️ **Pojedynek klubowy** • *{half_str}*"
+                embed_color = 0xe74c3c
             else:
-                time_str = "Veto / Przygotowanie"
+                score_header = "# ⏳ Przed meczem"
+                sub_badge = f"⚔️ **Pojedynek klubowy** • *{half_str}*"
+                embed_color = 0xf39c12
 
-            # Formatuje składy z emotkami leveli
-            team1_roster_str = format_roster(team1_roster)
-            team2_roster_str = format_roster(team2_roster)
+        elif f2_our_count > f1_our_count and f2_our_count > 0:
+            # Nasi są w faction 2
+            our_team_name = f2.get("name", "Nasi")
+            enemy_team_name = f1.get("name", "Przeciwnicy")
+            team1_label, team2_label = f"🔹 **Nasza drużyna ({our_team_name}):**", f"🔸 **Przeciwnicy ({enemy_team_name}):**"
+            team1_roster, team2_roster = f2_roster, f1_roster
+            t1_stats, t2_stats = f2.get("stats", {}), f1.get("stats", {})
 
-            # Miniaturka pierwszej mapy
-            if not thumbnail_set and details.get("map_image"):
-                embed.set_thumbnail(url=details["map_image"])
-                thumbnail_set = True
+            if status in ["CANCELLED", "ABORTED"]:
+                score_header = "# ❌ Mecz anulowany"
+                sub_badge = "🚫 **Spotkanie anulowane przez Faceit** *(nierozegrane)*"
+                embed_color = 0x95a5a6
+            elif status == "FINISHED":
+                if s2 > s1:
+                    lead_badge = f"🏆 **Zwycięstwo (+{s2 - s1})**"
+                    embed_color = 0x2ecc71
+                elif s2 < s1:
+                    lead_badge = f"💀 **Porażka (-{s1 - s2})**"
+                    embed_color = 0xe74c3c
+                else:
+                    lead_badge = "🤝 **Remis**"
+                    embed_color = 0x95a5a6
+                score_header = f"# 🏁 {s2} : {s1}"
+                sub_badge = f"{lead_badge} • *Koniec spotkania*"
+            elif status in ["ON_GOING", "ONGOING", "LIVE", "MATCH"]:
+                if s2 > s1:
+                    lead_badge = f"🟢 **Prowadzenie (+{s2 - s1})**"
+                elif s2 < s1:
+                    lead_badge = f"🔴 **Strata (-{s1 - s2})**"
+                else:
+                    lead_badge = "🟡 **Remis**"
+                score_header = f"# 📊 {s2} : {s1}"
+                sub_badge = f"{lead_badge} • *{half_str}*"
+                embed_color = 0xe74c3c
+            else:
+                score_header = "# ⏳ Przed meczem"
+                sub_badge = f"🟠 **{half_str}**"
+                embed_color = 0xf39c12
 
-            pole_nazwa = f"🗺️ MAPA: {mapa.upper()}  ┃  {status_text}"
-            pole_info = (
-                f"{score_header}\n"
-                f"{sub_badge}\n"
-                f"👥 **W meczu:** {our_str}\n\n"
-                f"> ⏱️ **Czas gry:** {time_str}\n"
-                f"> 📈 **Średnie ELO:** `{t1_elo_str}` {t1_lvl_emoji} ({t1_prob}%) vs `{t2_elo_str}` {t2_lvl_emoji} ({t2_prob}%)"
-            )
-            
-            pole_sklady = (
-                f"{team1_label}\n"
-                f"{team1_roster_str}\n\n"
-                f"{team2_label}\n"
-                f"{team2_roster_str}\n\n"
-                f"🔗 [Kliknij, aby otworzyć pokój meczowy Faceit]({details['faceit_url']})"
-            )
-            
-            if data.get("finished_at"):
-                pozostalo = max(0, int(180 - (time.time() - data["finished_at"])))
-                pole_sklady += f"\n*(Karta zniknie za ~{pozostalo}s)*"
+        else:
+            # Nasi są w faction 1 (lub domyślnie)
+            our_team_name = f1.get("name", "Nasi")
+            enemy_team_name = f2.get("name", "Przeciwnicy")
+            team1_label, team2_label = f"🔹 **Nasza drużyna ({our_team_name}):**", f"🔸 **Przeciwnicy ({enemy_team_name}):**"
+            team1_roster, team2_roster = f1_roster, f2_roster
+            t1_stats, t2_stats = f1.get("stats", {}), f2.get("stats", {})
 
-            _add_safe_field(embed, pole_nazwa, pole_info, inline=False)
-            _add_safe_field(embed, "👥 Składy drużyn", pole_sklady, inline=False)
-            match_urls.append((f"Mecz: {mapa}", details.get("faceit_url")))
+            if status in ["CANCELLED", "ABORTED"]:
+                score_header = "# ❌ Mecz anulowany"
+                sub_badge = "🚫 **Spotkanie anulowane przez Faceit** *(nierozegrane)*"
+                embed_color = 0x95a5a6
+            elif status == "FINISHED":
+                if s1 > s2:
+                    lead_badge = f"🏆 **Zwycięstwo (+{s1 - s2})**"
+                    embed_color = 0x2ecc71
+                elif s1 < s2:
+                    lead_badge = f"💀 **Porażka (-{s2 - s1})**"
+                    embed_color = 0xe74c3c
+                else:
+                    lead_badge = "🤝 **Remis**"
+                    embed_color = 0x95a5a6
+                score_header = f"# 🏁 {s1} : {s2}"
+                sub_badge = f"{lead_badge} • *Koniec spotkania*"
+            elif status in ["ON_GOING", "ONGOING", "LIVE", "MATCH"]:
+                if s1 > s2:
+                    lead_badge = f"🟢 **Prowadzenie (+{s1 - s2})**"
+                elif s1 < s2:
+                    lead_badge = f"🔴 **Strata (-{s2 - s1})**"
+                else:
+                    lead_badge = "🟡 **Remis**"
+                score_header = f"# 📊 {s1} : {s2}"
+                sub_badge = f"{lead_badge} • *{half_str}*"
+                embed_color = 0xe74c3c
+            else:
+                score_header = "# ⏳ Przed meczem"
+                sub_badge = f"🟠 **{half_str}**"
+                embed_color = 0xf39c12
 
+        # Statystyki ELO
+        t1_elo = t1_stats.get("rating")
+        t2_elo = t2_stats.get("rating")
+        t1_elo_str = f"{t1_elo} ELO" if t1_elo else "Brak ELO"
+        t2_elo_str = f"{t2_elo} ELO" if t2_elo else "Brak ELO"
+
+        t1_lvl = str(t1_stats.get("skillLevel", {}).get("average", ""))
+        t2_lvl = str(t2_stats.get("skillLevel", {}).get("average", ""))
+        t1_lvl_emoji = level_emojis.get(t1_lvl, "") if t1_lvl else ""
+        t2_lvl_emoji = level_emojis.get(t2_lvl, "") if t2_lvl else ""
+
+        t1_prob = int(round(float(t1_stats.get("winProbability", 0.5)) * 100))
+        t2_prob = int(round(float(t2_stats.get("winProbability", 0.5)) * 100))
+
+        # Czas gry
+        started_at = details.get("started_at")
+        configured_at = details.get("configured_at")
+        if status in ["CANCELLED", "ABORTED"]:
+            time_str = "Spotkanie odwołane (nierozegrane)"
+        elif status == "FINISHED":
+            if started_at:
+                start_str = datetime.datetime.fromtimestamp(started_at).strftime("%H:%M")
+                elapsed_min = int((now - started_at) // 60)
+                time_str = f"Zakończony (~{elapsed_min} min gry, start: {start_str})"
+            else:
+                time_str = "Zakończony"
+        elif started_at:
+            elapsed_min = int((now - started_at) // 60)
+            start_str = datetime.datetime.fromtimestamp(started_at).strftime("%H:%M")
+            time_str = f"**{elapsed_min} min** (od {start_str})"
+        elif configured_at:
+            elapsed_min = int((now - configured_at) // 60)
+            time_str = f"Rozgrzewka (od {elapsed_min} min)"
+        else:
+            time_str = "Veto / Przygotowanie"
+
+        team1_roster_str = format_roster(team1_roster)
+        team2_roster_str = format_roster(team2_roster)
+
+        # Dobór tytułu embeda
+        if status in ["CANCELLED", "ABORTED"]:
+            embed_title = f"❌ MECZ ANULOWANY: {mapa.upper()}"
+        elif status == "FINISHED":
+            embed_title = f"🏁 MECZ ZAKOŃCZONY: {mapa.upper()}"
+        elif status in ["ON_GOING", "ONGOING", "LIVE", "MATCH"]:
+            embed_title = f"🔴 MECZ NA ŻYWO: {mapa.upper()}"
+        elif status == "PAUSED":
+            embed_title = f"⏸️ MECZ WSTRZYMANY: {mapa.upper()}"
+        else:
+            embed_title = f"🟠 MECZ W PRZYGOTOWANIU: {mapa.upper()}"
+
+        embed = discord.Embed(
+            title=embed_title,
+            description=f"Status: **{status_text}**",
+            color=embed_color
+        )
+
+        if details.get("map_image"):
+            embed.set_thumbnail(url=details["map_image"])
+
+        pole_info = (
+            f"{score_header}\n"
+            f"{sub_badge}\n"
+            f"👥 **W meczu:** {our_str}\n\n"
+            f"> ⏱️ **Czas gry:** {time_str}\n"
+            f"> 📈 **Średnie ELO:** `{t1_elo_str}` {t1_lvl_emoji} ({t1_prob}%) vs `{t2_elo_str}` {t2_lvl_emoji} ({t2_prob}%)"
+        )
+        
+        pole_sklady = (
+            f"{team1_label}\n"
+            f"{team1_roster_str}\n\n"
+            f"{team2_label}\n"
+            f"{team2_roster_str}\n\n"
+            f"🔗 [Kliknij, aby otworzyć pokój meczowy Faceit]({details.get('faceit_url', '#')})"
+        )
+        
+        if data.get("finished_at"):
+            pozostalo = max(0, int(180 - (now - data["finished_at"])))
+            pole_sklady += f"\n*(Karta zniknie za ~{pozostalo}s)*"
+
+        embed.add_field(name="📊 Wynik i Informacje", value=pole_info[:1024], inline=False)
+        embed.add_field(name="👥 Składy drużyn", value=pole_sklady[:1024], inline=False)
         embed.set_footer(text=f"Stan na {now_str} • Auto-odświeżanie co ~10s")
-        view = LiveMatchView(match_urls) if match_urls else None
+
+        view = LiveMatchView(details.get("faceit_url"), label=f"Pokój meczowy: {mapa}") if details.get("faceit_url") else None
         return embed, view
 
+    async def _delete_all_tracked_messages(self, guild_id, channel, ustawienia=None):
+        """Usuwa wszystkie aktywne wiadomości live (zarówno idle jak i mecze)."""
+        if ustawienia is None:
+            ustawienia = wczytaj_ustawienia(guild_id)
+
+        # 1. Usuwamy idle_msg_id i stary live_msg_id
+        for key in ["live_idle_msg_id", "live_msg_id"]:
+            mid = ustawienia.get(key)
+            if mid:
+                try:
+                    msg = await channel.fetch_message(int(mid))
+                    await msg.delete()
+                except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                    pass
+                ustawienia[key] = None
+
+        # 2. Usuwamy wiadomości poszczególnych meczów
+        match_msgs = ustawienia.get("live_matches_msg_ids")
+        if isinstance(match_msgs, dict):
+            for mid in match_msgs.values():
+                try:
+                    msg = await channel.fetch_message(int(mid))
+                    await msg.delete()
+                except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                    pass
+        ustawienia["live_matches_msg_ids"] = {}
+        zapisz_ustawienia(guild_id, ustawienia)
+
     async def update_live_dashboard(self, guild_id):
-        """Aktualizuje lub tworzy wiadomość z dashboardem na kanale."""
-        ustawienia = wczytaj_ustawienia(guild_id)
-        kanal_id = ustawienia.get("kanal_live")
-        if not kanal_id:
+        """Aktualizuje lub tworzy oddzielne wiadomości dla każdego trwającego meczu."""
+        guild_id_str = str(guild_id)
+        if guild_id_str not in self._locks:
+            self._locks[guild_id_str] = asyncio.Lock()
+
+        lock = self._locks[guild_id_str]
+        if lock.locked():
+            # Jeśli poprzednia aktualizacja dla tej gildii wciąż trwa, pomijamy ten tick
             return
 
-        guild = self.bot.get_guild(int(guild_id))
-        if not guild:
-            return
-
-        channel = guild.get_channel(int(kanal_id))
-        if not channel:
-            print(f"⚠️ [LIVE] Nie znaleziono kanału o ID {kanal_id} w gildii {guild_id}")
-            return
-
-        active = await self._fetch_guild_active_matches(guild_id)
-        embed, view = self._build_dashboard_embed(guild_id, active)
-
-        # Aktualizacja nazwy kanału w tle (🔴 tylko gdy mecz trwa, 🟢 gdy brak lub zakończony)
-        try:
-            has_live = any(
-                str(m["details"].get("status", "")).upper() not in ["FINISHED", "CANCELLED", "ABORTED"]
-                for m in active.values()
-            )
-            target_emoji = "🔴" if has_live else "🟢"
-            current_name = channel.name
-            clean_name = current_name
-            for em in ["🔴", "🟢"]:
-                if clean_name.startswith(em):
-                    clean_name = clean_name[len(em):]
-                    break
-            clean_name = clean_name.lstrip("・-—_ ")
-            if not clean_name:
-                clean_name = "mecze-live"
-            target_name = f"{target_emoji}・{clean_name}"
-
-            if current_name != target_name:
-                asyncio.create_task(self._safe_rename_channel(channel, target_name))
-        except Exception as e:
-            print(f"⚠️ [LIVE] Błąd przygotowania zmiany nazwy kanału {channel.id}: {e}")
-
-        msg_id = ustawienia.get("live_msg_id")
-        msg = None
-        if msg_id:
-            try:
-                msg = await channel.fetch_message(int(msg_id))
-                await msg.edit(embed=embed, view=view)
+        async with lock:
+            ustawienia = wczytaj_ustawienia(guild_id)
+            kanal_id = ustawienia.get("kanal_live")
+            if not kanal_id:
                 return
-            except (discord.NotFound, discord.HTTPException):
-                msg = None
 
-        # Jeśli wiadomości nie ma lub usunięto, wysyłamy nową i zapisujemy ID
-        try:
-            nowa_wiadomosc = await channel.send(embed=embed, view=view)
-            ustawienia["live_msg_id"] = nowa_wiadomosc.id
+            guild = self.bot.get_guild(int(guild_id))
+            if not guild:
+                return
+
+            channel = guild.get_channel(int(kanal_id))
+            if not channel:
+                print(f"⚠️ [LIVE] Nie znaleziono kanału o ID {kanal_id} w gildii {guild_id}")
+                return
+
+            active = await self._fetch_guild_active_matches(guild_id)
+
+            # Aktualizacja nazwy kanału w tle (🔴 tylko gdy mecz trwa, 🟢 gdy brak lub zakończony)
+            try:
+                has_live = any(
+                    str(m["details"].get("status", "")).upper() not in ["FINISHED", "CANCELLED", "ABORTED"]
+                    for m in active.values()
+                )
+                target_emoji = "🔴" if has_live else "🟢"
+                current_name = channel.name
+                clean_name = current_name
+                for em in ["🔴", "🟢"]:
+                    if clean_name.startswith(em):
+                        clean_name = clean_name[len(em):]
+                        break
+                clean_name = clean_name.lstrip("・-—_ ")
+                if not clean_name:
+                    clean_name = "mecze-live"
+                target_name = f"{target_emoji}・{clean_name}"
+
+                if current_name != target_name:
+                    asyncio.create_task(self._safe_rename_channel(channel, target_name))
+            except Exception as e:
+                print(f"⚠️ [LIVE] Błąd przygotowania zmiany nazwy kanału {channel.id}: {e}")
+
+            live_matches_msg_ids = ustawienia.get("live_matches_msg_ids")
+            if not isinstance(live_matches_msg_ids, dict):
+                live_matches_msg_ids = {}
+
+            idle_msg_id = ustawienia.get("live_idle_msg_id") or ustawienia.get("live_msg_id")
+
+            if not active:
+                # BRAK AKTYWNYCH MECZÓW
+                # 1. Usuwamy wszelkie pozostałe wiadomości meczowe
+                for m_id, m_msg_id in list(live_matches_msg_ids.items()):
+                    try:
+                        old_msg = await channel.fetch_message(int(m_msg_id))
+                        await old_msg.delete()
+                    except discord.NotFound:
+                        pass
+                    except Exception as e:
+                        print(f"⚠️ [LIVE] Nie udało się usunąć starej wiadomości meczu {m_id}: {e}")
+                live_matches_msg_ids = {}
+
+                # 2. Wyświetlamy lub aktualizujemy wiadomość stanu czuwania (idle)
+                idle_embed = self._build_idle_embed(guild_id)
+                if idle_msg_id:
+                    try:
+                        idle_msg = await channel.fetch_message(int(idle_msg_id))
+                        await idle_msg.edit(embed=idle_embed, view=None)
+                    except discord.NotFound:
+                        try:
+                            new_idle = await channel.send(embed=idle_embed)
+                            idle_msg_id = new_idle.id
+                        except Exception as e:
+                            print(f"⚠️ [LIVE] Błąd wysyłania nowej wiadomości idle: {e}")
+                    except discord.HTTPException as e:
+                        # Chwilowy błąd Discorda (np. rate limit/500) - nie duplikujemy wiadomości
+                        print(f"⚠️ [LIVE] Chwilowy błąd edycji wiadomości idle: {e}")
+                else:
+                    try:
+                        new_idle = await channel.send(embed=idle_embed)
+                        idle_msg_id = new_idle.id
+                    except Exception as e:
+                        print(f"⚠️ [LIVE] Błąd wysyłania wiadomości idle: {e}")
+
+            else:
+                # SĄ AKTYWNE MECZE (oddzielne wiadomości per mecz)
+                # 1. Usuwamy wiadomość czuwania (idle)
+                if idle_msg_id:
+                    try:
+                        idle_msg = await channel.fetch_message(int(idle_msg_id))
+                        await idle_msg.delete()
+                    except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                        pass
+                    idle_msg_id = None
+
+                # 2. Usuwamy wiadomości meczów, które już nie są śledzone
+                for m_id in list(live_matches_msg_ids.keys()):
+                    if m_id not in active:
+                        old_mid = live_matches_msg_ids.pop(m_id)
+                        try:
+                            old_msg = await channel.fetch_message(int(old_mid))
+                            await old_msg.delete()
+                        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                            pass
+
+                # 3. Dla każdego meczu aktualizujemy lub tworzymy osobną wiadomość
+                for match_id, match_data in active.items():
+                    embed, view = self._build_single_match_embed(guild_id, match_id, match_data)
+                    m_msg_id = live_matches_msg_ids.get(match_id)
+
+                    if m_msg_id:
+                        try:
+                            msg = await channel.fetch_message(int(m_msg_id))
+                            await msg.edit(embed=embed, view=view)
+                        except discord.NotFound:
+                            try:
+                                new_msg = await channel.send(embed=embed, view=view)
+                                live_matches_msg_ids[match_id] = new_msg.id
+                            except Exception as e:
+                                print(f"⚠️ [LIVE] Błąd wysyłania wiadomości dla meczu {match_id}: {e}")
+                        except discord.HTTPException as e:
+                            # Chwilowy błąd - nie tworzymy nowej wiadomości, spróbujemy w kolejnym ticku
+                            print(f"⚠️ [LIVE] Chwilowy błąd edycji wiadomości dla meczu {match_id}: {e}")
+                    else:
+                        try:
+                            new_msg = await channel.send(embed=embed, view=view)
+                            live_matches_msg_ids[match_id] = new_msg.id
+                        except Exception as e:
+                            print(f"⚠️ [LIVE] Błąd wysyłania wiadomości dla meczu {match_id}: {e}")
+
+            # Zapisujemy zaktualizowane ID w bazie
+            ustawienia["live_idle_msg_id"] = idle_msg_id
+            ustawienia["live_msg_id"] = idle_msg_id
+            ustawienia["live_matches_msg_ids"] = live_matches_msg_ids
             zapisz_ustawienia(guild_id, ustawienia)
-        except discord.Forbidden:
-            print(f"⚠️ [LIVE] Brak uprawnień do wysłania wiadomości na kanale {channel.id}")
-        except Exception as e:
-            print(f"⚠️ [LIVE] Błąd wysyłania wiadomości live na kanale {channel.id}: {e}")
 
     @tasks.loop(seconds=10)
     async def live_monitor(self):
@@ -538,7 +649,18 @@ class LiveMatchesCog(commands.Cog):
         ustawienia = wczytaj_ustawienia(guild_id)
 
         target_channel = kanal or ctx.channel
+        
+        # Jeśli zmieniamy kanał, czyścimy stare wiadomości
+        stary_kanal_id = ustawienia.get("kanal_live")
+        if stary_kanal_id:
+            stary_kanal = ctx.guild.get_channel(int(stary_kanal_id))
+            if stary_kanal:
+                await self._delete_all_tracked_messages(guild_id, stary_kanal, ustawienia)
+
         ustawienia["kanal_live"] = target_channel.id
+        ustawienia["live_idle_msg_id"] = None
+        ustawienia["live_msg_id"] = None
+        ustawienia["live_matches_msg_ids"] = {}
         zapisz_ustawienia(guild_id, ustawienia)
 
         msg = await ctx.send(f"⏳ Inicjalizuję dashboard na żywo na kanale {target_channel.mention}...")
@@ -562,7 +684,7 @@ class LiveMatchesCog(commands.Cog):
     @commands.command(name="live_repost")
     @commands.has_permissions(administrator=True)
     async def cmd_live_repost(self, ctx):
-        """Usuwa poprzednią wiadomość dashboardu i wysyła nową na sam dół kanału."""
+        """Usuwa poprzednie wiadomości dashboardu i wysyła nowe na sam dół kanału."""
         guild_id = ctx.guild.id
         ustawienia = wczytaj_ustawienia(guild_id)
         kanal_id = ustawienia.get("kanal_live")
@@ -571,16 +693,7 @@ class LiveMatchesCog(commands.Cog):
             return
 
         channel = ctx.guild.get_channel(int(kanal_id)) or ctx.channel
-        stare_msg_id = ustawienia.get("live_msg_id")
-        if stare_msg_id:
-            try:
-                stara = await channel.fetch_message(int(stare_msg_id))
-                await stara.delete()
-            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
-                pass
-
-        ustawienia["live_msg_id"] = None
-        zapisz_ustawienia(guild_id, ustawienia)
+        await self._delete_all_tracked_messages(guild_id, channel, ustawienia)
 
         msg = await ctx.send("⏳ Przenoszę dashboard na żywo na dół kanału...")
         await self.update_live_dashboard(guild_id)
