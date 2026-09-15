@@ -10,7 +10,7 @@ import config
 
 CATEGORIES = {
     "max_kills": {
-        "title": "👑 Najwięcej killi (Mecz bez OT)",
+        "title": "👑 Najwięcej killi (Mecz)",
         "col": "kills",
         "func": "MAX",
         "unit": "killi",
@@ -20,7 +20,7 @@ CATEGORIES = {
         "extra_where": "AND m.rounds >= 13 AND m.rounds <= 24"
     },
     "max_hltv": {
-        "title": "⭐ Najwyższe HLTV (Mecz bez OT)",
+        "title": "⭐ Najwyższe HLTV (Mecz)",
         "col": "hltv",
         "func": "MAX",
         "unit": "HLTV",
@@ -30,7 +30,7 @@ CATEGORIES = {
         "extra_where": "AND m.rounds >= 13 AND m.rounds <= 24"
     },
     "max_ud": {
-        "title": "💣 Najwyższe Utility Damage (Mecz bez OT)",
+        "title": "💣 Najwyższe Utility Damage",
         "col": "ud",
         "func": "MAX",
         "unit": "UD",
@@ -40,7 +40,7 @@ CATEGORIES = {
         "extra_where": "AND m.rounds >= 13 AND m.rounds <= 24"
     },
     "max_winstreak": {
-        "title": "🔥 Najdłuższa seria zwycięstw (Winstreak)",
+        "title": "🔥 Najdłuższa seria zwycięstw",
         "unit": "wygranych z rzędu",
         "is_bad": False,
         "texts_key": "RECORD_WINSTREAK_TEXTS",
@@ -48,7 +48,7 @@ CATEGORIES = {
         "is_custom": True
     },
     "min_kills": {
-        "title": "🐌 Najmniej killi (Pełen mecz bez OT)",
+        "title": "🐌 Najmniej killi (Mecz)",
         "col": "kills",
         "func": "MIN",
         "unit": "killi",
@@ -58,7 +58,7 @@ CATEGORIES = {
         "extra_where": "AND m.rounds >= 13 AND m.rounds <= 24"
     },
     "min_hltv": {
-        "title": "🤖 Najniższe HLTV (Mecz bez OT)",
+        "title": "🤖 Najniższe HLTV (Mecz)",
         "col": "hltv",
         "func": "MIN",
         "unit": "HLTV",
@@ -68,7 +68,7 @@ CATEGORIES = {
         "extra_where": "AND m.rounds >= 13 AND m.rounds <= 24"
     },
     "max_deaths": {
-        "title": "💀 Najwięcej zgonów (Mecz bez OT)",
+        "title": "💀 Najwięcej zgonów (Mecz)",
         "col": "deaths",
         "func": "MAX",
         "unit": "zgonów",
@@ -78,7 +78,7 @@ CATEGORIES = {
         "extra_where": "AND m.rounds >= 13 AND m.rounds <= 24"
     },
     "max_lossstreak": {
-        "title": "❄️ Najdłuższa seria porażek (Loss-streak)",
+        "title": "❄️ Najdłuższa seria porażek",
         "unit": "porażek z rzędu",
         "is_bad": True,
         "texts_key": "RECORD_LOSSSTREAK_TEXTS",
@@ -345,12 +345,12 @@ class RecordsCog(commands.Cog):
         # Specjalna karta MVP Sezonów
         if category == "season_mvps":
             embed = discord.Embed(
-                title="✨ MVP ZAKOŃCZONYCH SEZONÓW",
+                title="✨ MVP Zakończonych Sezonów",
                 color=0xFFD700
             )
             seasons = get_season_mvps(guild_id)
             if not seasons:
-                embed.description = "*Brak zakończonych sezonów. Tytuł MVP zostanie wpisany po zakończeniu pierwszego sezonu!*"
+                embed.description = "*Brak zakończonych sezonów. Tytuł MVP pojawi się po zakończeniu pierwszego sezonu.*"
             else:
                 lines = []
                 for s in seasons:
@@ -379,8 +379,7 @@ class RecordsCog(commands.Cog):
                 value_str = "*Brak rekordów*"
             else:
                 formatted_val = str(val)
-                ikona = "🏆" if not cat_info["is_bad"] else "💀"
-                value_str = f"{ikona} Wynik: **{formatted_val}** {cat_info['unit']}\n\n"
+                value_str = f"Wynik: **{formatted_val}** {cat_info['unit']}\n\n"
                 if holders:
                     holder_lines = []
                     for h in holders:
@@ -394,7 +393,7 @@ class RecordsCog(commands.Cog):
             embed.description = value_str
             return embed
 
-        # Standardowe kategorie meczowe (bez OT)
+        # Standardowe kategorie meczowe
         val = get_extreme_value(guild_id, category)
         color = 0x00FF00 if not cat_info["is_bad"] else 0xFF0000
         embed = discord.Embed(
@@ -403,12 +402,11 @@ class RecordsCog(commands.Cog):
         )
         
         if val is None:
-            value_str = "*Brak rekordów (mecze bez OT)*"
+            value_str = "*Brak rekordów*"
         else:
             holders = get_record_holders(guild_id, category, val)
             formatted_val = f"{val:.2f}" if isinstance(val, float) else str(val)
-            ikona = "🏆" if not cat_info["is_bad"] else "💀"
-            value_str = f"{ikona} Wynik: **{formatted_val}** {cat_info['unit']}\n\n"
+            value_str = f"Wynik: **{formatted_val}** {cat_info['unit']}\n\n"
             
             if holders:
                 holder_lines = []
@@ -427,8 +425,8 @@ class RecordsCog(commands.Cog):
     async def generate_records_embed(self, guild_id):
         # Fallback na wypadek gdyby pojedyncza wiadomość była wciąż używana
         embed = discord.Embed(
-            title="🏆 REKORDY SERWERA: HALA SŁAW I WSTYDU",
-            description="Tutaj zobaczysz rekordy wszech czasów graczy naszej ekipy (mecze bez OT).\n*Wszystkie statystyki pobierane automatycznie z bazy danych.*",
+            title="🏆 Tablica Rekordów Ekipy",
+            description="Rekordy wszech czasów graczy naszej ekipy.\n*Wszystkie statystyki pobierane automatycznie z bazy danych.*",
             color=get_cfg(guild_id, "main_color", 0xFF5500)
         )
         
@@ -465,11 +463,11 @@ class RecordsCog(commands.Cog):
             else:
                 good_fields.append((cat_info["title"], value_str))
                 
-        embed.add_field(name="🟢 HALA SŁAW", value="\u200b", inline=False)
+        embed.add_field(name="🟢 Hala Sław", value="\u200b", inline=False)
         for title, val_str in good_fields:
             embed.add_field(name=title, value=val_str, inline=False)
             
-        embed.add_field(name="🔴 HALA WSTYDU", value="\u200b", inline=False)
+        embed.add_field(name="🔴 Hala Wstydu", value="\u200b", inline=False)
         for title, val_str in bad_fields:
             embed.add_field(name=title, value=val_str, inline=False)
             
@@ -482,7 +480,7 @@ class RecordsCog(commands.Cog):
                 progres = s.get("progres", 0)
                 znak = "+" if progres > 0 else ""
                 mvp_lines.append(f"**{s['nr']}.** **{s['nazwa']}** — <@{d_id}> *({znak}{progres} ELO)*")
-            embed.add_field(name="✨ MVP ZAKOŃCZONYCH SEZONÓW", value="\n".join(mvp_lines), inline=False)
+            embed.add_field(name="✨ MVP Zakończonych Sezonów", value="\n".join(mvp_lines), inline=False)
             
         embed.set_footer(text="Rekordy aktualizują się automatycznie po każdym meczu.")
         return embed
@@ -551,8 +549,8 @@ class RecordsCog(commands.Cog):
             
             # Nagłówek główny
             header_embed = discord.Embed(
-                title="🏆 TABLICA REKORDÓW WSZECH CZASÓW",
-                description="Statystyki są pobierane automatycznie po każdym meczu z bazy danych Faceit (mecze bez dogrywki OT).\nKażdy rekord poniżej ma swoją dedykowaną kartę.",
+                title="🏆 TABLICA REKORDÓW",
+                description="Statystyki pobierane automatycznie po każdym meczu z bazy danych Faceit.\nKażdy rekord poniżej posiada własną dedykowaną kartę.",
                 color=get_cfg(guild_id, "main_color", 0xFF5500)
             )
             await new_channel.send(embed=header_embed)
@@ -602,7 +600,7 @@ class RecordsCog(commands.Cog):
         any_change = False
         announcements = []
         
-        # 1. Sprawdzenie standardowych kategorii meczowych (tylko mecze bez dogrywki: 13 do 24 rund)
+        # 1. Sprawdzenie standardowych kategorii meczowych (13 do 24 rund)
         if 13 <= rounds <= 24:
             for category, cat_info in CATEGORIES.items():
                 if cat_info.get("is_custom"):
@@ -699,7 +697,6 @@ class RecordsCog(commands.Cog):
             elif now_streak_val > prev_streak_val:
                 is_broken = True
             elif now_streak_val == prev_streak_val:
-                # Sprawdzamy czy to wyrównanie rekordu
                 is_tied = True
                 
             if is_broken or is_tied:
