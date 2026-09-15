@@ -22,19 +22,36 @@ async def close_faceit_session():
     if _session and not _session.closed:
         await _session.close()
 
-async def get_faceit_data(endpoint: str):
-    """Pomocnicza funkcja do zapytań API (z connection pooling)"""
+_api_sem = asyncio.Semaphore(4)
+
+async def get_faceit_data(endpoint: str, retries: int = 2):
+    """Pomocnicza funkcja do zapytań API z connection poolingiem i ponawianiem przy 429 (Rate Limit)"""
     headers = {"Authorization": f"Bearer {FACEIT_KEY}"}
     session = await get_session()
-    try:
-        async with session.get(f"{BASE_URL}/{endpoint}", headers=headers) as response:
-            if response.status == 200:
-                return await response.json()
-            print(f"⚠️ Faceit API Error (Status {response.status}) dla endpointu: {endpoint}")
+    
+    for attempt in range(retries + 1):
+        try:
+            async with _api_sem:
+                async with session.get(f"{BASE_URL}/{endpoint}", headers=headers) as response:
+                    if response.status == 200:
+                        return await response.json()
+                    elif response.status == 429:
+                        if attempt < retries:
+                            await asyncio.sleep(1.2 * (attempt + 1))
+                            continue
+                        print(f"⚠️ Faceit API Error (Status 429 - Rate Limit) dla endpointu: {endpoint}")
+                        return None
+                    elif response.status == 404:
+                        return None
+                    print(f"⚠️ Faceit API Error (Status {response.status}) dla endpointu: {endpoint}")
+                    return None
+        except aiohttp.ClientError as e:
+            if attempt < retries:
+                await asyncio.sleep(0.5)
+                continue
+            print(f"Faceit API Connection Error: {e}")
             return None
-    except aiohttp.ClientError as e:
-        print(f"Faceit API Connection Error: {e}")
-        return None
+    return None
 
 async def get_player_id(identifier: str):
     """Szybkie pobieranie samego player_id na podstawie nicku lub ID"""

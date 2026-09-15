@@ -58,6 +58,7 @@ class LiveMatchesCog(commands.Cog):
         # 1. Sprawdzamy stan meczowy graczy
         for discord_id, player_id in ekipa.items():
             try:
+                await asyncio.sleep(0.08)
                 # Najpierw sprawdzamy endpoint czasu rzeczywistego (groupByState)
                 match_id = await get_player_ongoing_match_id(player_id)
                 if not match_id:

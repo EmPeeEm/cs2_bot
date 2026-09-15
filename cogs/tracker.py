@@ -142,17 +142,19 @@ class TrackerCog(commands.Cog):
         all_guilds_players = await asyncio.to_thread(get_all_guilds_players)
         if not all_guilds_players: return
 
-        import asyncio
+        tracker_sem = asyncio.Semaphore(3)
         async def check_player_match(p_id):
-            current_match_id = await get_latest_match_id(p_id)
-            if not current_match_id: return None
-            zapis_bazy = mecze_baza.get(p_id)
-            saved_match_id = zapis_bazy.get("match_id") if isinstance(zapis_bazy, dict) else (zapis_bazy if isinstance(zapis_bazy, str) else None)
-            if current_match_id == saved_match_id:
-                return None
-            gracz = await get_player_stats(p_id, lifetime=False)
-            mecz = await get_last_match_stats(p_id)
-            return {"gracz": gracz, "mecz": mecz}
+            async with tracker_sem:
+                await asyncio.sleep(0.1)
+                current_match_id = await get_latest_match_id(p_id)
+                if not current_match_id: return None
+                zapis_bazy = mecze_baza.get(p_id)
+                saved_match_id = zapis_bazy.get("match_id") if isinstance(zapis_bazy, dict) else (zapis_bazy if isinstance(zapis_bazy, str) else None)
+                if current_match_id == saved_match_id:
+                    return None
+                gracz = await get_player_stats(p_id, lifetime=False)
+                mecz = await get_last_match_stats(p_id)
+                return {"gracz": gracz, "mecz": mecz}
 
         tasks = [check_player_match(p_id) for p_id in all_guilds_players.keys()]
         results = await asyncio.gather(*tasks, return_exceptions=True)
