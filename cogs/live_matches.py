@@ -16,8 +16,10 @@ STATUS_LABELS = {
     "ONGOING": "🔴 W trakcie meczu (LIVE)",
     "LIVE": "🔴 W trakcie meczu (LIVE)",
     "MATCH": "🔴 W trakcie meczu (LIVE)",
+    "PAUSED": "⏸️ Pauza / Mecz wstrzymany",
     "FINISHED": "🏁 Mecz zakończony",
-    "CANCELLED": "❌ Mecz anulowany"
+    "CANCELLED": "❌ Mecz anulowany",
+    "ABORTED": "❌ Mecz przerwany"
 }
 
 class LiveMatchView(discord.ui.View):
@@ -36,7 +38,7 @@ class LiveMatchView(discord.ui.View):
 class LiveMatchesCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        # active_matches[guild_id] = {match_id: {"details": ..., "our_players": [...], "finished_at": timestamp or None}}
+        # active_matches[guild_id] = {match_id: {"details": ..., "our_players": [...], "finished_at": timestamp or None, "fail_count": 0}}
         self.active_matches = {}
         self.channel_rename_history = {} # channel_id -> list of timestamps in last 10m
         self.live_monitor.start()
@@ -75,33 +77,81 @@ class LiveMatchesCog(commands.Cog):
             print(f"⚠️ [LIVE] Błąd zmiany nazwy kanału {channel.id}: {e}")
 
     async def _fetch_guild_active_matches(self, guild_id):
-        """Skanuje ekipę z danej gildii i wykrywa trwające mecze."""
+        """Skanuje ekipę z danej gildii i stabilnie śledzi trwające mecze."""
         ekipa = wczytaj_ekipe(guild_id)
         if not ekipa:
+            self.active_matches[guild_id] = {}
             return {}
 
         if guild_id not in self.active_matches:
             self.active_matches[guild_id] = {}
 
         current_active = self.active_matches[guild_id]
-        found_matches_this_tick = {}
+        now = time.time()
+        updated_active = {}
 
-        # 1. Sprawdzamy stan meczowy graczy
+        # 1. KROK 1: Najpierw sprawdzamy stan MECZÓW, które JUŻ SĄ ŚLEDZONE
+        # Bezpośrednio pytamy o match_id, dzięki czemu nie tracimy stanu gry przy chwilowych błędach API
+        for match_id, match_data in list(current_active.items()):
+            try:
+                details = await get_match_details(match_id)
+                if details:
+                    match_data["details"] = details
+                    match_data["fail_count"] = 0
+                    status = str(details.get("status", "")).upper()
+
+                    # Aktualizujemy listę naszych graczy na podstawie aktualnego składu w meczu
+                    our_players = []
+                    for f_key in ["faction1", "faction2"]:
+                        roster = details.get("teams", {}).get(f_key, {}).get("roster", [])
+                        for p in roster:
+                            p_id = p.get("player_id")
+                            for d_id, e_pid in ekipa.items():
+                                if e_pid == p_id and (d_id, p_id) not in our_players:
+                                    our_players.append((d_id, p_id))
+                    if our_players:
+                        match_data["our_players"] = our_players
+
+                    if status in ["FINISHED", "CANCELLED", "ABORTED"]:
+                        if not match_data.get("finished_at"):
+                            match_data["finished_at"] = now
+                        # Trzymamy zakończony mecz przez 180 sekund (3 minuty)
+                        if now - match_data["finished_at"] <= 180:
+                            updated_active[match_id] = match_data
+                    else:
+                        match_data["finished_at"] = None
+                        updated_active[match_id] = match_data
+                else:
+                    # Chwilowy błąd API / rate limit - zachowujemy mecz w pamięci podręcznej (do 6 ticków = ~60s)
+                    fail_count = match_data.get("fail_count", 0) + 1
+                    match_data["fail_count"] = fail_count
+                    if fail_count <= 6:
+                        updated_active[match_id] = match_data
+            except Exception as e:
+                print(f"⚠️ [LIVE] Błąd sprawdzania aktywnego meczu {match_id}: {e}")
+                updated_active[match_id] = match_data
+
+        # 2. KROK 2: Sprawdzamy graczy, którzy NIE SĄ w żadnym z aktualnie śledzonych meczów
+        players_in_tracked = set()
+        for m_data in updated_active.values():
+            for _, p_id in m_data.get("our_players", []):
+                players_in_tracked.add(p_id)
+
         for discord_id, player_id in ekipa.items():
+            if player_id in players_in_tracked:
+                continue
+
             try:
                 await asyncio.sleep(0.08)
-                # Najpierw sprawdzamy endpoint czasu rzeczywistego (groupByState)
+                # Sprawdzamy czy wolny gracz rozpoczął nowy mecz
                 match_id = await get_player_ongoing_match_id(player_id)
-                if not match_id:
-                    # Fallback na ostatni mecz z historii (gdy trwa lub był już śledzony)
-                    match_id = await get_latest_match_id(player_id)
-
                 if not match_id:
                     continue
 
-                if match_id in found_matches_this_tick:
-                    if (discord_id, player_id) not in found_matches_this_tick[match_id]["our_players"]:
-                        found_matches_this_tick[match_id]["our_players"].append((discord_id, player_id))
+                if match_id in updated_active:
+                    if (discord_id, player_id) not in updated_active[match_id]["our_players"]:
+                        updated_active[match_id]["our_players"].append((discord_id, player_id))
+                    players_in_tracked.add(player_id)
                     continue
 
                 details = await get_match_details(match_id)
@@ -109,32 +159,30 @@ class LiveMatchesCog(commands.Cog):
                     continue
 
                 status = str(details.get("status", "")).upper()
-                # Interesują nas mecze w toku lub te, które już wcześniej śledziliśmy
-                if status in ["VOTING", "CONFIGURING", "READY", "ON_GOING", "ONGOING", "LIVE", "MATCH"] or match_id in current_active:
-                    found_matches_this_tick[match_id] = {
+                if status in ["VOTING", "CONFIGURING", "READY", "ON_GOING", "ONGOING", "LIVE", "MATCH", "PAUSED"]:
+                    # Znajdujemy wszystkich graczy z naszej ekipy w tym meczu
+                    our_players = []
+                    for f_key in ["faction1", "faction2"]:
+                        roster = details.get("teams", {}).get(f_key, {}).get("roster", [])
+                        for p in roster:
+                            p_id = p.get("player_id")
+                            for d_id, e_pid in ekipa.items():
+                                if e_pid == p_id and (d_id, p_id) not in our_players:
+                                    our_players.append((d_id, p_id))
+
+                    if not our_players:
+                        our_players = [(discord_id, player_id)]
+
+                    updated_active[match_id] = {
                         "details": details,
-                        "our_players": [(discord_id, player_id)],
-                        "finished_at": current_active.get(match_id, {}).get("finished_at")
+                        "our_players": our_players,
+                        "finished_at": None,
+                        "fail_count": 0
                     }
+                    for _, p_id in our_players:
+                        players_in_tracked.add(p_id)
             except Exception as e:
                 print(f"⚠️ [LIVE] Błąd podczas sprawdzania gracza {player_id}: {e}")
-
-        # 2. Aktualizujemy stan i obsługujemy zakończenie meczu
-        now = time.time()
-        updated_active = {}
-
-        for match_id, match_data in found_matches_this_tick.items():
-            status = str(match_data["details"].get("status", "")).upper()
-            if status in ["FINISHED", "CANCELLED"]:
-                if not match_data["finished_at"]:
-                    match_data["finished_at"] = now
-                
-                # Trzymamy zakończony mecz przez 180 sekund (3 minuty), po czym usuwamy
-                if now - match_data["finished_at"] <= 180:
-                    updated_active[match_id] = match_data
-            else:
-                match_data["finished_at"] = None
-                updated_active[match_id] = match_data
 
         self.active_matches[guild_id] = updated_active
         return updated_active
@@ -159,7 +207,7 @@ class LiveMatchesCog(commands.Cog):
             return embed, None
 
         has_live = any(
-            str(m["details"].get("status", "")).upper() not in ["FINISHED", "CANCELLED"]
+            str(m["details"].get("status", "")).upper() not in ["FINISHED", "CANCELLED", "ABORTED"]
             for m in active_matches.values()
         )
 
@@ -227,9 +275,11 @@ class LiveMatchesCog(commands.Cog):
                     half_str = "2. połowa"
                 else:
                     half_str = "Dogrywka (OT)"
+            elif status == "PAUSED":
+                half_str = "Pauza"
             elif status == "FINISHED":
                 half_str = "Mecz zakończony"
-            elif status == "CANCELLED":
+            elif status in ["CANCELLED", "ABORTED"]:
                 half_str = "Mecz anulowany"
             else:
                 half_str = "Veto / Łączenie z serwerem"
@@ -243,7 +293,7 @@ class LiveMatchesCog(commands.Cog):
                 team1_roster, team2_roster = f1_roster, f2_roster
                 t1_stats, t2_stats = f1.get("stats", {}), f2.get("stats", {})
 
-                if status == "CANCELLED":
+                if status in ["CANCELLED", "ABORTED"]:
                     score_header = "# ❌ Mecz anulowany"
                     sub_badge = "🚫 **Spotkanie anulowane przez Faceit** *(nierozegrane)*"
                 elif status == "FINISHED":
@@ -264,7 +314,7 @@ class LiveMatchesCog(commands.Cog):
                 team1_roster, team2_roster = f2_roster, f1_roster
                 t1_stats, t2_stats = f2.get("stats", {}), f1.get("stats", {})
 
-                if status == "CANCELLED":
+                if status in ["CANCELLED", "ABORTED"]:
                     score_header = "# ❌ Mecz anulowany"
                     sub_badge = "🚫 **Spotkanie anulowane przez Faceit** *(nierozegrane)*"
                 elif status == "FINISHED":
@@ -297,7 +347,7 @@ class LiveMatchesCog(commands.Cog):
                 team1_roster, team2_roster = f1_roster, f2_roster
                 t1_stats, t2_stats = f1.get("stats", {}), f2.get("stats", {})
 
-                if status == "CANCELLED":
+                if status in ["CANCELLED", "ABORTED"]:
                     score_header = "# ❌ Mecz anulowany"
                     sub_badge = "🚫 **Spotkanie anulowane przez Faceit** *(nierozegrane)*"
                 elif status == "FINISHED":
@@ -414,7 +464,7 @@ class LiveMatchesCog(commands.Cog):
         # Aktualizacja nazwy kanału w tle (🔴 tylko gdy mecz trwa, 🟢 gdy brak lub zakończony)
         try:
             has_live = any(
-                str(m["details"].get("status", "")).upper() not in ["FINISHED", "CANCELLED"]
+                str(m["details"].get("status", "")).upper() not in ["FINISHED", "CANCELLED", "ABORTED"]
                 for m in active.values()
             )
             target_emoji = "🔴" if has_live else "🟢"

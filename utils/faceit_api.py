@@ -10,6 +10,7 @@ FACEIT_KEY = os.getenv('FACEIT_API_KEY')
 BASE_URL = "https://open.faceit.com/data/v4"
 
 _session = None
+_curl_session = None
 
 async def get_session():
     global _session
@@ -17,10 +18,24 @@ async def get_session():
         _session = aiohttp.ClientSession()
     return _session
 
+async def get_curl_session():
+    global _curl_session
+    if not HAS_CURL_CFFI:
+        return None
+    if _curl_session is None:
+        _curl_session = CurlAsyncSession(impersonate="chrome124")
+    return _curl_session
+
 async def close_faceit_session():
-    global _session
+    global _session, _curl_session
     if _session and not _session.closed:
         await _session.close()
+    if _curl_session is not None:
+        try:
+            await _curl_session.close()
+        except Exception:
+            pass
+        _curl_session = None
 
 _api_sem = asyncio.Semaphore(4)
 
@@ -87,20 +102,24 @@ async def get_player_ongoing_match_id(player_id: str):
                 "Referer": "https://www.faceit.com/",
                 "Origin": "https://www.faceit.com"
             }
-            async with CurlAsyncSession(impersonate="chrome124") as curl_session:
+            curl_session = await get_curl_session()
+            if curl_session:
                 resp = await curl_session.get(url_group, headers=headers, timeout=5)
                 if resp.status_code == 200:
                     data = resp.json()
                     payload = data.get("payload", {})
-                    for state in ["ONGOING", "MATCH", "SUBSTITUTION", "CHECKIN", "CALL", "VOTING", "CONFIGURING", "READY"]:
+                    for state in ["ONGOING", "MATCH", "SUBSTITUTION", "CHECKIN", "CALL", "VOTING", "CONFIGURING", "READY", "LIVE", "ON_GOING", "PAUSED"]:
                         matches = payload.get(state, [])
                         if matches:
-                            m_id = matches[0].get("id") or matches[0].get("matchId")
+                            m_id = matches[0].get("id") or matches[0].get("matchId") or matches[0].get("match_id")
                             if m_id:
                                 return m_id
                 elif resp.status_code != 404:
                     print(f"⚠️ [LIVE API] groupByState status {resp.status_code} dla {player_id}")
         except Exception as e:
+            # W razie błędu sesji curl_cffi resetujemy uchwyt
+            global _curl_session
+            _curl_session = None
             print(f"⚠️ [LIVE API] Błąd curl_cffi dla {player_id}: {e}")
     else:
         # Fallback aiohttp
@@ -123,10 +142,10 @@ async def get_player_ongoing_match_id(player_id: str):
                 if resp.status == 200:
                     data = await resp.json()
                     payload = data.get("payload", {})
-                    for state in ["ONGOING", "MATCH", "SUBSTITUTION", "CHECKIN", "CALL", "VOTING", "CONFIGURING", "READY"]:
+                    for state in ["ONGOING", "MATCH", "SUBSTITUTION", "CHECKIN", "CALL", "VOTING", "CONFIGURING", "READY", "LIVE", "ON_GOING", "PAUSED"]:
                         matches = payload.get(state, [])
                         if matches:
-                            m_id = matches[0].get("id") or matches[0].get("matchId")
+                            m_id = matches[0].get("id") or matches[0].get("matchId") or matches[0].get("match_id")
                             if m_id:
                                 return m_id
                 elif resp.status != 404:
@@ -142,7 +161,7 @@ async def get_player_ongoing_match_id(player_id: str):
             m_id = item.get("match_id")
             if m_id:
                 status = item.get("status", "").upper()
-                if status in ["VOTING", "CONFIGURING", "READY", "ON_GOING", "ONGOING", "LIVE", "MATCH"]:
+                if status in ["VOTING", "CONFIGURING", "READY", "ON_GOING", "ONGOING", "LIVE", "MATCH", "PAUSED"]:
                     return m_id
     except Exception:
         pass
