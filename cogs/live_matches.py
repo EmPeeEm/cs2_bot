@@ -38,10 +38,41 @@ class LiveMatchesCog(commands.Cog):
         self.bot = bot
         # active_matches[guild_id] = {match_id: {"details": ..., "our_players": [...], "finished_at": timestamp or None}}
         self.active_matches = {}
+        self.channel_rename_history = {} # channel_id -> list of timestamps in last 10m
         self.live_monitor.start()
 
     def cog_unload(self):
         self.live_monitor.cancel()
+
+    async def _safe_rename_channel(self, channel: discord.TextChannel, target_name: str):
+        """Bezpiecznie zmienia nazwę kanału z uwzględnieniem limitu Discorda (max 2 na 10 min)."""
+        channel_id = channel.id
+        now = time.time()
+        
+        # Filtrujemy historię zmian z ostatnich 10 minut (600s)
+        history = self.channel_rename_history.get(channel_id, [])
+        history = [t for t in history if now - t < 610]
+        self.channel_rename_history[channel_id] = history
+
+        # Discord pozwala na maksymalnie 2 zmiany nazwy kanału na 10 minut
+        if len(history) >= 2:
+            return
+
+        if channel.name == target_name:
+            return
+
+        try:
+            await channel.edit(name=target_name)
+            self.channel_rename_history[channel_id].append(time.time())
+        except discord.Forbidden:
+            print(f"⚠️ [LIVE] Bot nie ma uprawnienia 'Zarządzanie kanałami' (Manage Channels) dla kanału {channel.id}")
+        except discord.HTTPException as e:
+            if e.status == 429:
+                print(f"ℹ️ [LIVE] Discord rate limit (429) przy zmianie nazwy kanału {channel.id} - zignorowano, kolejna próba po upływie limitu.")
+            else:
+                print(f"⚠️ [LIVE] Błąd zmiany nazwy kanału {channel.id}: {e}")
+        except Exception as e:
+            print(f"⚠️ [LIVE] Błąd zmiany nazwy kanału {channel.id}: {e}")
 
     async def _fetch_guild_active_matches(self, guild_id):
         """Skanuje ekipę z danej gildii i wykrywa trwające mecze."""
@@ -380,7 +411,7 @@ class LiveMatchesCog(commands.Cog):
         active = await self._fetch_guild_active_matches(guild_id)
         embed, view = self._build_dashboard_embed(guild_id, active)
 
-        # Aktualizacja nazwy kanału (🔴 tylko gdy mecz faktycznie trwa, 🟢 gdy brak lub zakończony)
+        # Aktualizacja nazwy kanału w tle (🔴 tylko gdy mecz trwa, 🟢 gdy brak lub zakończony)
         try:
             has_live = any(
                 str(m["details"].get("status", "")).upper() not in ["FINISHED", "CANCELLED"]
@@ -399,11 +430,9 @@ class LiveMatchesCog(commands.Cog):
             target_name = f"{target_emoji}・{clean_name}"
 
             if current_name != target_name:
-                await channel.edit(name=target_name)
-        except discord.Forbidden:
-            print(f"⚠️ [LIVE] Bot nie ma uprawnienia 'Zarządzanie kanałami' (Manage Channels), aby zmienić nazwę kanału {channel.id}")
+                asyncio.create_task(self._safe_rename_channel(channel, target_name))
         except Exception as e:
-            print(f"⚠️ [LIVE] Błąd zmiany nazwy kanału {channel.id}: {e}")
+            print(f"⚠️ [LIVE] Błąd przygotowania zmiany nazwy kanału {channel.id}: {e}")
 
         msg_id = ustawienia.get("live_msg_id")
         msg = None
