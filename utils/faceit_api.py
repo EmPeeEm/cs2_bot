@@ -350,15 +350,21 @@ async def get_match_details(match_id: str):
         "mapa": mapa,
         "map_image": MAP_IMAGES.get(mapa),
         "faceit_url": faceit_url,
+        "calculate_elo": dane.get("calculate_elo", True),
+        "configured_at": dane.get("configured_at"),
         "started_at": dane.get("started_at"),
         "finished_at": dane.get("finished_at"),
         "teams": {
             "faction1": {
                 "name": faction1.get("name", "Team 1"),
+                "leader": faction1.get("leader"),
+                "stats": faction1.get("stats", {}),
                 "roster": faction1.get("roster", []),
             },
             "faction2": {
                 "name": faction2.get("name", "Team 2"),
+                "leader": faction2.get("leader"),
+                "stats": faction2.get("stats", {}),
                 "roster": faction2.get("roster", []),
             }
         },

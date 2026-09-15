@@ -108,15 +108,19 @@ class LiveMatchesCog(commands.Cog):
         return updated_active
 
     def _build_dashboard_embed(self, guild_id, active_matches):
-        """Buduje embed z listą trwających meczów lub stanem czuwania."""
+        """Buduje bogaty embed z pełnymi informacjami o trwających meczach lub stanem czuwania."""
         main_color = get_cfg(guild_id, "main_color", 0x2b2d31)
+        level_emojis = get_cfg(guild_id, "level_emojis", config.LEVEL_EMOJIS)
+        level_default = get_cfg(guild_id, "level_default", config.LEVEL_DEFAULT)
+        ekipa = wczytaj_ekipe(guild_id)
         now_str = datetime.datetime.now().strftime("%H:%M:%S")
+        now = time.time()
 
         if not active_matches:
             embed = discord.Embed(
                 title="🟢 MECZE NA ŻYWO: Brak aktywnych gier",
                 description="*Żaden z zarejestrowanych graczy nie rozgrywa obecnie meczu na Faceicie.*\n\n"
-                            "Gdy ktoś rozpocznie mecz, karta spotkania pojawi się tutaj automatycznie.",
+                            "Gdy ktoś rozpocznie mecz, karta spotkania ze składami, ELO i wynikiem pojawi się tutaj automatycznie.",
                 color=0x2ecc71
             )
             embed.set_footer(text=f"Stan na {now_str} • Auto-odświeżanie co ~35s")
@@ -131,9 +135,23 @@ class LiveMatchesCog(commands.Cog):
         match_urls = []
         thumbnail_set = False
 
+        def format_roster(roster):
+            formatted = []
+            for p in roster:
+                p_id = p.get("player_id")
+                nick = p.get("nickname") or p.get("game_player_name") or "Gracz"
+                lvl = str(p.get("game_skill_level", ""))
+                emoji = level_emojis.get(lvl, level_default)
+                is_our = any(e_pid == p_id for e_pid in ekipa.values())
+                if is_our:
+                    formatted.append(f"{emoji} **{nick}** ⭐️")
+                else:
+                    formatted.append(f"{emoji} {nick}")
+            return " • ".join(formatted) if formatted else "*Brak danych o składzie*"
+
         for match_id, data in active_matches.items():
             details = data["details"]
-            status = details.get("status", "UNKNOWN")
+            status = str(details.get("status", "UNKNOWN")).upper()
             status_text = STATUS_LABELS.get(status, f"Status: {status}")
             mapa = details.get("mapa", "W trakcie wyboru")
             
@@ -141,17 +159,63 @@ class LiveMatchesCog(commands.Cog):
             our_mentions = [f"<@{d_id}>" for d_id, p_id in data["our_players"]]
             our_str = ", ".join(our_mentions) if our_mentions else "Gracze ekipy"
 
-            # Drużyny i wynik
+            # Drużyny, ELO, poziomy i szanse
             teams = details.get("teams", {})
             f1 = teams.get("faction1", {})
             f2 = teams.get("faction2", {})
             f1_name = f1.get("name", "Drużyna 1")
             f2_name = f2.get("name", "Drużyna 2")
 
+            f1_stats = f1.get("stats", {})
+            f2_stats = f2.get("stats", {})
+            f1_elo = f1_stats.get("rating")
+            f2_elo = f2_stats.get("rating")
+            f1_elo_str = f"{f1_elo} ELO" if f1_elo else "Brak ELO"
+            f2_elo_str = f"{f2_elo} ELO" if f2_elo else "Brak ELO"
+
+            f1_lvl = str(f1_stats.get("skillLevel", {}).get("average", ""))
+            f2_lvl = str(f2_stats.get("skillLevel", {}).get("average", ""))
+            f1_lvl_emoji = level_emojis.get(f1_lvl, "") if f1_lvl else ""
+            f2_lvl_emoji = level_emojis.get(f2_lvl, "") if f2_lvl else ""
+
+            f1_prob = int(round(float(f1_stats.get("winProbability", 0.5)) * 100))
+            f2_prob = int(round(float(f2_stats.get("winProbability", 0.5)) * 100))
+
+            # Czas trwania i faza gry
+            started_at = details.get("started_at")
+            configured_at = details.get("configured_at")
+            if started_at:
+                elapsed_min = int((now - started_at) // 60)
+                start_str = datetime.datetime.fromtimestamp(started_at).strftime("%H:%M")
+                time_str = f"⏱️ Czas trwania: **{elapsed_min} min** (od {start_str})"
+            elif configured_at:
+                elapsed_min = int((now - configured_at) // 60)
+                time_str = f"⏱️ Faza łączenia / Rozgrzewka (od {elapsed_min} min)"
+            else:
+                time_str = "⏱️ Faza Veto / Przygotowanie"
+
+            # Wynik
             score = details.get("score", {})
             s1 = score.get("faction1", 0)
             s2 = score.get("faction2", 0)
-            score_str = f"**{s1} : {s2}**" if status in ["ON_GOING", "ONGOING", "LIVE", "MATCH", "FINISHED"] else "*Przed meczem (Veto / Łączenie)*"
+            total_rounds = s1 + s2
+
+            if status in ["ON_GOING", "ONGOING", "LIVE", "MATCH"]:
+                if total_rounds <= 12:
+                    half_str = "1. połowa"
+                elif total_rounds <= 24:
+                    half_str = "2. połowa"
+                else:
+                    half_str = "Dogrywka (OT)"
+                score_str = f"**{s1} : {s2}** ({half_str})"
+            elif status == "FINISHED":
+                score_str = f"**{s1} : {s2}** (Koniec spotkania)"
+            else:
+                score_str = "*Przed meczem (Veto / Łączenie)*"
+
+            # Formatuje składy z emotkami leveli
+            f1_roster_str = format_roster(f1.get("roster", []))
+            f2_roster_str = format_roster(f2.get("roster", []))
 
             # Miniaturka pierwszej mapy
             if not thumbnail_set and details.get("map_image"):
@@ -161,8 +225,12 @@ class LiveMatchesCog(commands.Cog):
             pole_nazwa = f"🗺️ Mapa: {mapa} | {status_text}"
             pole_wartosc = (
                 f"👥 **Nasi gracze:** {our_str}\n"
-                f"⚔️ **Mecz:** `{f1_name}` vs `{f2_name}`\n"
+                f"⚔️ **Pojedynek:** `{f1_name}` vs `{f2_name}`\n"
                 f"📊 **Wynik:** {score_str}\n"
+                f"{time_str}\n"
+                f"📈 **Średnie ELO:** `{f1_elo_str}` {f1_lvl_emoji} ({f1_prob}%) vs `{f2_elo_str}` {f2_lvl_emoji} ({f2_prob}%)\n\n"
+                f"🔹 **{f1_name}:**\n{f1_roster_str}\n\n"
+                f"🔸 **{f2_name}:**\n{f2_roster_str}\n\n"
                 f"🔗 [Przejdź do pokoju meczowego]({details['faceit_url']})"
             )
             
