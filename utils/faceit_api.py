@@ -74,9 +74,17 @@ async def get_player_ongoing_match_id(player_id: str):
     # 1. Sprawdzenie Faceit groupByState (natychmiastowe wykrywanie w czasie rzeczywistym)
     try:
         headers = {
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-            "Accept": "application/json",
-            "Referer": "https://www.faceit.com/"
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Sec-Ch-Ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+            "Sec-Ch-Ua-Mobile": "?0",
+            "Sec-Ch-Ua-Platform": '"Windows"',
+            "Sec-Fetch-Dest": "empty",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Site": "same-site",
+            "Referer": "https://www.faceit.com/",
+            "Origin": "https://www.faceit.com"
         }
         url_group = f"https://api.faceit.com/match/v1/matches/groupByState?userId={player_id}"
         async with session.get(url_group, headers=headers, timeout=aiohttp.ClientTimeout(total=5)) as resp:
