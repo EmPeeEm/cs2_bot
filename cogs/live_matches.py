@@ -124,14 +124,26 @@ class LiveMatchesCog(commands.Cog):
                             "Gdy ktoś rozpocznie mecz, karta spotkania ze składami, ELO i wynikiem pojawi się tutaj automatycznie.",
                 color=0x2ecc71
             )
-            embed.set_footer(text=f"Stan na {now_str} • Auto-odświeżanie co ~35s")
+            embed.set_footer(text=f"Stan na {now_str} • Auto-odświeżanie co ~30s")
             return embed, None
 
-        embed = discord.Embed(
-            title=f"🔴 TRWAJĄCE MECZE EKIPY ({len(active_matches)})",
-            description="Aktualnie trwające spotkania graczy z naszego serwera na platformie Faceit:",
-            color=0xe74c3c
+        has_live = any(
+            str(m["details"].get("status", "")).upper() not in ["FINISHED", "CANCELLED"]
+            for m in active_matches.values()
         )
+
+        if has_live:
+            embed = discord.Embed(
+                title=f"🔴 TRWAJĄCE MECZE EKIPY ({len(active_matches)})",
+                description="Aktualnie trwające spotkania graczy z naszego serwera na platformie Faceit:",
+                color=0xe74c3c
+            )
+        else:
+            embed = discord.Embed(
+                title="🟢 MECZE EKIPY: Zakończone spotkania",
+                description="*Wszystkie mecze dobiegły końca. Karty z wynikami znikną za chwilę:*",
+                color=0x2ecc71
+            )
 
         match_urls = []
         thumbnail_set = False
@@ -287,7 +299,7 @@ class LiveMatchesCog(commands.Cog):
             embed.add_field(name=pole_nazwa, value=pole_wartosc, inline=False)
             match_urls.append((f"Mecz: {mapa}", details.get("faceit_url")))
 
-        embed.set_footer(text=f"Stan na {now_str} • Auto-odświeżanie co ~35s")
+        embed.set_footer(text=f"Stan na {now_str} • Auto-odświeżanie co ~30s")
         view = LiveMatchView(match_urls) if match_urls else None
         return embed, view
 
@@ -310,9 +322,13 @@ class LiveMatchesCog(commands.Cog):
         active = await self._fetch_guild_active_matches(guild_id)
         embed, view = self._build_dashboard_embed(guild_id, active)
 
-        # Aktualizacja nazwy kanału (🔴 gdy mecz trwa, 🟢 gdy brak meczów)
+        # Aktualizacja nazwy kanału (🔴 tylko gdy mecz faktycznie trwa, 🟢 gdy brak lub zakończony)
         try:
-            target_emoji = "🔴" if active else "🟢"
+            has_live = any(
+                str(m["details"].get("status", "")).upper() not in ["FINISHED", "CANCELLED"]
+                for m in active.values()
+            )
+            target_emoji = "🔴" if has_live else "🟢"
             current_name = channel.name
             clean_name = current_name
             for em in ["🔴", "🟢"]:
@@ -351,7 +367,7 @@ class LiveMatchesCog(commands.Cog):
         except Exception as e:
             print(f"⚠️ [LIVE] Błąd wysyłania wiadomości live na kanale {channel.id}: {e}")
 
-    @tasks.loop(seconds=35)
+    @tasks.loop(seconds=30)
     async def live_monitor(self):
         """Główna pętla sprawdzania meczów na żywo."""
         for guild in self.bot.guilds:
