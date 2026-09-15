@@ -227,11 +227,18 @@ class LiveMatchesCog(commands.Cog):
         match_urls = []
         thumbnail_set = False
 
+        def _add_safe_field(em, name, value, inline=False):
+            clean_name = str(name or "Brak tytułu")[:256]
+            clean_value = str(value or "Brak danych")
+            if len(clean_value) > 1024:
+                clean_value = clean_value[:1015] + "\n..."
+            em.add_field(name=clean_name, value=clean_value, inline=inline)
+
         def format_roster(roster):
             formatted = []
-            for p in roster:
+            for p in roster[:5]:
                 p_id = p.get("player_id")
-                nick = p.get("nickname") or p.get("game_player_name") or "Gracz"
+                nick = str(p.get("nickname") or p.get("game_player_name") or "Gracz")[:20]
                 lvl = str(p.get("game_skill_level", ""))
                 emoji = level_emojis.get(lvl, level_default)
                 is_our = any(e_pid == p_id for e_pid in ekipa.values())
@@ -389,7 +396,7 @@ class LiveMatchesCog(commands.Cog):
             # Czas gry
             started_at = details.get("started_at")
             configured_at = details.get("configured_at")
-            if status == "CANCELLED":
+            if status in ["CANCELLED", "ABORTED"]:
                 time_str = "Spotkanie odwołane (nierozegrane)"
             elif status == "FINISHED":
                 if started_at:
@@ -418,12 +425,15 @@ class LiveMatchesCog(commands.Cog):
                 thumbnail_set = True
 
             pole_nazwa = f"🗺️ MAPA: {mapa.upper()}  ┃  {status_text}"
-            pole_wartosc = (
+            pole_info = (
                 f"{score_header}\n"
                 f"{sub_badge}\n"
                 f"👥 **W meczu:** {our_str}\n\n"
                 f"> ⏱️ **Czas gry:** {time_str}\n"
-                f"> 📈 **Średnie ELO:** `{t1_elo_str}` {t1_lvl_emoji} ({t1_prob}%) vs `{t2_elo_str}` {t2_lvl_emoji} ({t2_prob}%)\n\n"
+                f"> 📈 **Średnie ELO:** `{t1_elo_str}` {t1_lvl_emoji} ({t1_prob}%) vs `{t2_elo_str}` {t2_lvl_emoji} ({t2_prob}%)"
+            )
+            
+            pole_sklady = (
                 f"{team1_label}\n"
                 f"{team1_roster_str}\n\n"
                 f"{team2_label}\n"
@@ -433,9 +443,10 @@ class LiveMatchesCog(commands.Cog):
             
             if data.get("finished_at"):
                 pozostalo = max(0, int(180 - (time.time() - data["finished_at"])))
-                pole_wartosc += f"\n*(Karta zniknie za ~{pozostalo}s)*"
+                pole_sklady += f"\n*(Karta zniknie za ~{pozostalo}s)*"
 
-            embed.add_field(name=pole_nazwa, value=pole_wartosc, inline=False)
+            _add_safe_field(embed, pole_nazwa, pole_info, inline=False)
+            _add_safe_field(embed, "👥 Składy drużyn", pole_sklady, inline=False)
             match_urls.append((f"Mecz: {mapa}", details.get("faceit_url")))
 
         embed.set_footer(text=f"Stan na {now_str} • Auto-odświeżanie co ~10s")
