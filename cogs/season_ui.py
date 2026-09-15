@@ -157,6 +157,14 @@ class SeasonView(discord.ui.View):
         # 4. Zapisanie archiwum i dezaktywacja sezonu
         zakoncz_sezon(guild_id, wyniki)
 
+        # 5. Aktualizacja Hali Sław (w tym karty MVP Sezonów)
+        records_cog = interaction.client.get_cog("RecordsCog")
+        if records_cog:
+            try:
+                await records_cog.update_records_board(guild_id)
+            except Exception as e:
+                print(f"Błąd aktualizacji Hali Sław po zakończeniu sezonu: {e}")
+
         await interaction.followup.send("✅ Sezon został pomyślnie zakończony! Tabela wyników została zaktualizowana, a gratulacje wysłane na dedykowany kanał.", ephemeral=True)
 
 class SeasonUICog(commands.Cog):

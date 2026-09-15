@@ -155,7 +155,7 @@ class LiveMatchesCog(commands.Cog):
                             "Gdy ktoś rozpocznie mecz, karta spotkania ze składami, ELO i wynikiem pojawi się tutaj automatycznie.",
                 color=0x2ecc71
             )
-            embed.set_footer(text=f"Stan na {now_str} • Auto-odświeżanie co ~30s")
+            embed.set_footer(text=f"Stan na {now_str} • Auto-odświeżanie co ~10s")
             return embed, None
 
         has_live = any(

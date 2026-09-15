@@ -412,3 +412,25 @@ RECORD_DEATHS_TIE_TEXTS = [
     "🤝 Solidarność w ginięciu! {gracz} wyrównuje rekord zgonów, padając aż {wynik} razy na mapie {mapa}. Wasz darmowy catering dla wroga działa bez zarzutu!",
     "Kolejny chętny do bycia mięsem armatnim. {gracz} umiera {wynik} razy na {mapa}, wyrównując dotychczasowy rekord zgonów!"
 ]
+
+RECORD_WINSTREAK_TEXTS = [
+    "🔥 NIEPOWSTRZYMANY POTWÓR! {gracz} ustanawia NOWY REKORD SERWERA z passą aż {wynik} WYGRANYCH Z RZĘDU! Ktoś w ogóle jest w stanie go zatrzymać?",
+    "🚀 Droga na sam szczyt! {gracz} pobija rekord winstreaku osiągając {wynik} zwycięstw z rzędu na Faceit! Maszyna do wygrywania!",
+    "👑 Król serwera! {gracz} notuje rekordową serię {wynik} wygranych z rzędu. ELO samo wpada do kieszeni!"
+]
+
+RECORD_WINSTREAK_TIE_TEXTS = [
+    "🤝 Ognista seria! {gracz} wyrównuje rekord serwera osiągając aż {wynik} wygranych z rzędu!",
+    "🔥 Dołączenie do elity! {gracz} wyrównał rekord winstreaku z wynikiem {wynik} zwycięstw z rzędu!"
+]
+
+RECORD_LOSSSTREAK_TEXTS = [
+    "❄️ CZARNA SERIA! {gracz} ustanawia NOWY ANTY-REKORD serwera z fatalną serią {wynik} PORAŻEK Z RZĘDU! Czy ktoś może odciąć mu internet dla jego dobra?",
+    "📉 Płacz i zgrzytanie zębów! {gracz} bije rekord loss-streaku: {wynik} przegranych meczów pod rząd. ELO leci na samo dno rowu mariańskiego!",
+    "💀 Klątwa czy brak skilla? {gracz} notuje rekordową serię {wynik} porażek z rzędu. Wyłącz ten komputer i idź na spacer!"
+]
+
+RECORD_LOSSSTREAK_TIE_TEXTS = [
+    "🤝 Solidarność w tiltowaniu! {gracz} wyrównuje anty-rekord z serią {wynik} porażek z rzędu!",
+    "❄️ Ktoś tu potrzebuje przerwy! {gracz} wyrównał najgorszy loss-streak na serwerze: {wynik} przegranych pod rząd."
+]
