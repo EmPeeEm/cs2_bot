@@ -198,6 +198,8 @@ class LiveMatchesCog(commands.Cog):
                     half_str = "Dogrywka (OT)"
             elif status == "FINISHED":
                 half_str = "Mecz zakończony"
+            elif status == "CANCELLED":
+                half_str = "Mecz anulowany"
             else:
                 half_str = "Veto / Łączenie z serwerem"
 
@@ -206,41 +208,88 @@ class LiveMatchesCog(commands.Cog):
                 # Pojedynek wewnętrzny
                 t1_name = f1.get("name", "Drużyna 1")
                 t2_name = f2.get("name", "Drużyna 2")
-                score_header = f"# 📊 {s1} : {s2}"
-                sub_badge = f"⚔️ **Pojedynek klubowy** • {half_str}"
                 team1_label, team2_label = f"🔹 **{t1_name}:**", f"🔸 **{t2_name}:**"
                 team1_roster, team2_roster = f1_roster, f2_roster
                 t1_stats, t2_stats = f1.get("stats", {}), f2.get("stats", {})
+
+                if status == "CANCELLED":
+                    score_header = "# ❌ Mecz anulowany"
+                    sub_badge = "🚫 **Spotkanie anulowane przez Faceit** *(nierozegrane)*"
+                elif status == "FINISHED":
+                    score_header = f"# 🏁 {s1} : {s2}"
+                    sub_badge = "⚔️ **Pojedynek klubowy** • *Koniec spotkania*"
+                elif status in ["ON_GOING", "ONGOING", "LIVE", "MATCH"]:
+                    score_header = f"# 📊 {s1} : {s2}"
+                    sub_badge = f"⚔️ **Pojedynek klubowy** • *{half_str}*"
+                else:
+                    score_header = "# ⏳ Przed meczem"
+                    sub_badge = f"⚔️ **Pojedynek klubowy** • *{half_str}*"
+
             elif f2_our_count > f1_our_count and f2_our_count > 0:
                 # Nasi są w faction 2
                 our_team_name = f2.get("name", "Nasi")
                 enemy_team_name = f1.get("name", "Przeciwnicy")
-                score_header = f"# 📊 {s2} : {s1}"
-                if status in ["ON_GOING", "ONGOING", "LIVE", "MATCH"]:
-                    if s2 > s1: lead_badge = f"🟢 **Prowadzenie (+{s2 - s1})**"
-                    elif s2 < s1: lead_badge = f"🔴 **Strata (-{s1 - s2})**"
-                    else: lead_badge = "🟡 **Remis**"
-                else:
-                    lead_badge = "⏳ **Przed meczem**" if status != "FINISHED" else "🏁 **Koniec**"
-                sub_badge = f"{lead_badge} • *{half_str}*"
                 team1_label, team2_label = f"🔹 **Nasza drużyna ({our_team_name}):**", f"🔸 **Przeciwnicy ({enemy_team_name}):**"
                 team1_roster, team2_roster = f2_roster, f1_roster
                 t1_stats, t2_stats = f2.get("stats", {}), f1.get("stats", {})
+
+                if status == "CANCELLED":
+                    score_header = "# ❌ Mecz anulowany"
+                    sub_badge = "🚫 **Spotkanie anulowane przez Faceit** *(nierozegrane)*"
+                elif status == "FINISHED":
+                    if s2 > s1:
+                        lead_badge = f"🏆 **Zwycięstwo (+{s2 - s1})**"
+                    elif s2 < s1:
+                        lead_badge = f"💀 **Porażka (-{s1 - s2})**"
+                    else:
+                        lead_badge = "🤝 **Remis**"
+                    score_header = f"# 🏁 {s2} : {s1}"
+                    sub_badge = f"{lead_badge} • *Koniec spotkania*"
+                elif status in ["ON_GOING", "ONGOING", "LIVE", "MATCH"]:
+                    if s2 > s1:
+                        lead_badge = f"🟢 **Prowadzenie (+{s2 - s1})**"
+                    elif s2 < s1:
+                        lead_badge = f"🔴 **Strata (-{s1 - s2})**"
+                    else:
+                        lead_badge = "🟡 **Remis**"
+                    score_header = f"# 📊 {s2} : {s1}"
+                    sub_badge = f"{lead_badge} • *{half_str}*"
+                else:
+                    score_header = "# ⏳ Przed meczem"
+                    sub_badge = f"🟠 **{half_str}**"
+
             else:
                 # Nasi są w faction 1 (lub domyślnie)
                 our_team_name = f1.get("name", "Nasi")
                 enemy_team_name = f2.get("name", "Przeciwnicy")
-                score_header = f"# 📊 {s1} : {s2}"
-                if status in ["ON_GOING", "ONGOING", "LIVE", "MATCH"]:
-                    if s1 > s2: lead_badge = f"🟢 **Prowadzenie (+{s1 - s2})**"
-                    elif s1 < s2: lead_badge = f"🔴 **Strata (-{s2 - s1})**"
-                    else: lead_badge = "🟡 **Remis**"
-                else:
-                    lead_badge = "⏳ **Przed meczem**" if status != "FINISHED" else "🏁 **Koniec**"
-                sub_badge = f"{lead_badge} • *{half_str}*"
                 team1_label, team2_label = f"🔹 **Nasza drużyna ({our_team_name}):**", f"🔸 **Przeciwnicy ({enemy_team_name}):**"
                 team1_roster, team2_roster = f1_roster, f2_roster
                 t1_stats, t2_stats = f1.get("stats", {}), f2.get("stats", {})
+
+                if status == "CANCELLED":
+                    score_header = "# ❌ Mecz anulowany"
+                    sub_badge = "🚫 **Spotkanie anulowane przez Faceit** *(nierozegrane)*"
+                elif status == "FINISHED":
+                    if s1 > s2:
+                        lead_badge = f"🏆 **Zwycięstwo (+{s1 - s2})**"
+                    elif s1 < s2:
+                        lead_badge = f"💀 **Porażka (-{s2 - s1})**"
+                    else:
+                        lead_badge = "🤝 **Remis**"
+                    score_header = f"# 🏁 {s1} : {s2}"
+                    sub_badge = f"{lead_badge} • *Koniec spotkania*"
+                elif status in ["ON_GOING", "ONGOING", "LIVE", "MATCH"]:
+                    if s1 > s2:
+                        lead_badge = f"🟢 **Prowadzenie (+{s1 - s2})**"
+                    elif s1 < s2:
+                        lead_badge = f"🔴 **Strata (-{s2 - s1})**"
+                    else:
+                        lead_badge = "🟡 **Remis**"
+                    score_header = f"# 📊 {s1} : {s2}"
+                    sub_badge = f"{lead_badge} • *{half_str}*"
+                else:
+                    score_header = "# ⏳ Przed meczem"
+                    sub_badge = f"🟠 **{half_str}**"
 
             # Statystyki ELO
             t1_elo = t1_stats.get("rating")
@@ -259,7 +308,16 @@ class LiveMatchesCog(commands.Cog):
             # Czas gry
             started_at = details.get("started_at")
             configured_at = details.get("configured_at")
-            if started_at:
+            if status == "CANCELLED":
+                time_str = "Spotkanie odwołane (nierozegrane)"
+            elif status == "FINISHED":
+                if started_at:
+                    start_str = datetime.datetime.fromtimestamp(started_at).strftime("%H:%M")
+                    elapsed_min = int((now - started_at) // 60)
+                    time_str = f"Zakończony (~{elapsed_min} min gry, start: {start_str})"
+                else:
+                    time_str = "Zakończony"
+            elif started_at:
                 elapsed_min = int((now - started_at) // 60)
                 start_str = datetime.datetime.fromtimestamp(started_at).strftime("%H:%M")
                 time_str = f"**{elapsed_min} min** (od {start_str})"
