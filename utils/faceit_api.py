@@ -50,6 +50,46 @@ async def get_latest_match_id(player_id: str):
         return historia["items"][0].get("match_id")
     return None
 
+async def get_player_ongoing_match_id(player_id: str):
+    """Sprawdza czy gracz jest w aktywnym meczu (obsługuje endpointy Faceit groupByState oraz Open API)"""
+    session = await get_session()
+    
+    # 1. Sprawdzenie Faceit groupByState (natychmiastowe wykrywanie w czasie rzeczywistym)
+    try:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            "Accept": "application/json",
+            "Referer": "https://www.faceit.com/"
+        }
+        url_group = f"https://api.faceit.com/match/v1/matches/groupByState?userId={player_id}"
+        async with session.get(url_group, headers=headers, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+            if resp.status == 200:
+                data = await resp.json()
+                payload = data.get("payload", {})
+                for state in ["ONGOING", "MATCH", "SUBSTITUTION", "CHECKIN", "CALL", "VOTING", "CONFIGURING", "READY"]:
+                    matches = payload.get(state, [])
+                    if matches:
+                        m_id = matches[0].get("id") or matches[0].get("matchId")
+                        if m_id:
+                            return m_id
+    except Exception:
+        pass
+
+    # 2. Fallback: Open Data API history
+    try:
+        historia = await get_faceit_data(f"players/{player_id}/history?game=cs2&offset=0&limit=1")
+        if historia and historia.get("items"):
+            item = historia["items"][0]
+            m_id = item.get("match_id")
+            if m_id:
+                status = item.get("status", "").upper()
+                if status in ["VOTING", "CONFIGURING", "READY", "ON_GOING", "ONGOING", "LIVE", "MATCH"]:
+                    return m_id
+    except Exception:
+        pass
+
+    return None
+
 import re
 
 def is_uuid(identifier: str):

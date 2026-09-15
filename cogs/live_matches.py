@@ -6,13 +6,16 @@ import time
 import datetime
 import config
 from utils.database import wczytaj_ekipe, wczytaj_ustawienia, zapisz_ustawienia, get_cfg
-from utils.faceit_api import get_latest_match_id, get_match_details, get_player_stats
+from utils.faceit_api import get_latest_match_id, get_player_ongoing_match_id, get_match_details, get_player_stats
 
 STATUS_LABELS = {
     "VOTING": "🟡 Faza Veto / Wybór mapy",
     "CONFIGURING": "🟠 Konfiguracja serwera",
     "READY": "🟠 Rozgrzewka / Łączenie z serwerem",
     "ON_GOING": "🔴 W trakcie meczu (LIVE)",
+    "ONGOING": "🔴 W trakcie meczu (LIVE)",
+    "LIVE": "🔴 W trakcie meczu (LIVE)",
+    "MATCH": "🔴 W trakcie meczu (LIVE)",
     "FINISHED": "🏁 Mecz zakończony",
     "CANCELLED": "❌ Mecz anulowany"
 }
@@ -52,28 +55,34 @@ class LiveMatchesCog(commands.Cog):
         current_active = self.active_matches[guild_id]
         found_matches_this_tick = {}
 
-        # 1. Sprawdzamy najnowsze mecze graczy
+        # 1. Sprawdzamy stan meczowy graczy
         for discord_id, player_id in ekipa.items():
             try:
-                latest_match_id = await get_latest_match_id(player_id)
-                if not latest_match_id:
+                # Najpierw sprawdzamy endpoint czasu rzeczywistego (groupByState)
+                match_id = await get_player_ongoing_match_id(player_id)
+                if not match_id:
+                    # Fallback na ostatni mecz z historii (gdy trwa lub był już śledzony)
+                    match_id = await get_latest_match_id(player_id)
+
+                if not match_id:
                     continue
 
-                if latest_match_id in found_matches_this_tick:
-                    found_matches_this_tick[latest_match_id]["our_players"].append((discord_id, player_id))
+                if match_id in found_matches_this_tick:
+                    if (discord_id, player_id) not in found_matches_this_tick[match_id]["our_players"]:
+                        found_matches_this_tick[match_id]["our_players"].append((discord_id, player_id))
                     continue
 
-                details = await get_match_details(latest_match_id)
+                details = await get_match_details(match_id)
                 if not details:
                     continue
 
-                status = details.get("status")
+                status = str(details.get("status", "")).upper()
                 # Interesują nas mecze w toku lub te, które już wcześniej śledziliśmy
-                if status in ["VOTING", "CONFIGURING", "READY", "ON_GOING"] or latest_match_id in current_active:
-                    found_matches_this_tick[latest_match_id] = {
+                if status in ["VOTING", "CONFIGURING", "READY", "ON_GOING", "ONGOING", "LIVE", "MATCH"] or match_id in current_active:
+                    found_matches_this_tick[match_id] = {
                         "details": details,
                         "our_players": [(discord_id, player_id)],
-                        "finished_at": current_active.get(latest_match_id, {}).get("finished_at")
+                        "finished_at": current_active.get(match_id, {}).get("finished_at")
                     }
             except Exception as e:
                 print(f"Błąd podczas sprawdzania gracza {player_id}: {e}")
@@ -83,7 +92,7 @@ class LiveMatchesCog(commands.Cog):
         updated_active = {}
 
         for match_id, match_data in found_matches_this_tick.items():
-            status = match_data["details"].get("status")
+            status = str(match_data["details"].get("status", "")).upper()
             if status in ["FINISHED", "CANCELLED"]:
                 if not match_data["finished_at"]:
                     match_data["finished_at"] = now
@@ -142,7 +151,7 @@ class LiveMatchesCog(commands.Cog):
             score = details.get("score", {})
             s1 = score.get("faction1", 0)
             s2 = score.get("faction2", 0)
-            score_str = f"**{s1} : {s2}**" if status in ["ON_GOING", "FINISHED"] else "*Przed meczem*"
+            score_str = f"**{s1} : {s2}**" if status in ["ON_GOING", "ONGOING", "LIVE", "MATCH", "FINISHED"] else "*Przed meczem (Veto / Łączenie)*"
 
             # Miniaturka pierwszej mapy
             if not thumbnail_set and details.get("map_image"):
