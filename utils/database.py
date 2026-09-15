@@ -134,6 +134,43 @@ def wczytaj_sezon(guild_id):
             "leaderboard_channel_id": int(row[4]) if row[4] else None
         }
 
+def zakoncz_sezon(guild_id, wyniki=None):
+    """Deaktywuje aktywny sezon gildii i opcjonalnie zapisuje dane archiwalne."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        if wyniki is not None:
+            archive = json.dumps(wyniki)
+            cursor.execute("UPDATE seasons SET is_active = 0, archive_data = ? WHERE guild_id = ? AND is_active = 1", (archive, str(guild_id)))
+        else:
+            cursor.execute("UPDATE seasons SET is_active = 0 WHERE guild_id = ? AND is_active = 1", (str(guild_id),))
+        conn.commit()
+
+def pobierz_ostatni_zakonczony_sezon(guild_id):
+    """Pobiera dane ostatniego zakończonego sezonu."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id, name, start_elo, archive_data, leaderboard_msg_id, leaderboard_channel_id FROM seasons WHERE guild_id = ? AND is_active = 0 ORDER BY id DESC LIMIT 1", (str(guild_id),))
+        row = cursor.fetchone()
+        if not row: return {}
+        return {
+            "id": row[0],
+            "nazwa": row[1],
+            "start_elo": json.loads(row[2]) if row[2] else {},
+            "archive": json.loads(row[3]) if row[3] else {},
+            "leaderboard_msg_id": int(row[4]) if row[4] else None,
+            "leaderboard_channel_id": int(row[5]) if row[5] else None
+        }
+
+def zaktualizuj_leaderboard_msg_id(guild_id, msg_id, channel_id=None):
+    """Aktualizuje ID wiadomości tabeli aktywnego sezonu."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        if channel_id:
+            cursor.execute("UPDATE seasons SET leaderboard_msg_id = ?, leaderboard_channel_id = ? WHERE guild_id = ? AND is_active = 1", (str(msg_id), str(channel_id), str(guild_id)))
+        else:
+            cursor.execute("UPDATE seasons SET leaderboard_msg_id = ? WHERE guild_id = ? AND is_active = 1", (str(msg_id), str(guild_id)))
+        conn.commit()
+
 def zapisz_sezon(guild_id, dane):
     """Zapisuje dane sezonu gildii."""
     with get_connection() as conn:
