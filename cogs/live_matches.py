@@ -388,7 +388,7 @@ class LiveMatchesCog(commands.Cog):
             embed.add_field(name=pole_nazwa, value=pole_wartosc, inline=False)
             match_urls.append((f"Mecz: {mapa}", details.get("faceit_url")))
 
-        embed.set_footer(text=f"Stan na {now_str} • Auto-odświeżanie co ~15s")
+        embed.set_footer(text=f"Stan na {now_str} • Auto-odświeżanie co ~10s")
         view = LiveMatchView(match_urls) if match_urls else None
         return embed, view
 
@@ -454,7 +454,7 @@ class LiveMatchesCog(commands.Cog):
         except Exception as e:
             print(f"⚠️ [LIVE] Błąd wysyłania wiadomości live na kanale {channel.id}: {e}")
 
-    @tasks.loop(seconds=15)
+    @tasks.loop(seconds=10)
     async def live_monitor(self):
         """Główna pętla sprawdzania meczów na żywo."""
         for guild in self.bot.guilds:
