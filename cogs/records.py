@@ -319,11 +319,19 @@ def get_season_mvps(guild_id):
             
         seasons_list = []
         for s_id, s_name, archive_json in rows:
+            if s_name in ["123", "test"]:
+                continue
             if archive_json:
                 try:
                     archive = json.loads(archive_json)
-                    if isinstance(archive, list) and len(archive) > 0:
-                        mvp = archive[0]
+                    wyniki = []
+                    if isinstance(archive, list):
+                        wyniki = archive
+                    elif isinstance(archive, dict) and "wyniki" in archive:
+                        wyniki = archive["wyniki"]
+                    
+                    if wyniki and len(wyniki) > 0:
+                        mvp = wyniki[0]
                         seasons_list.append({
                             "nr": len(seasons_list) + 1,
                             "nazwa": s_name,
