@@ -263,3 +263,65 @@ async def get_map_segments(player_id: str):
     dane = await get_faceit_data(f"players/{player_id}/stats/cs2")
     if not dane: return []
     return dane.get("segments", [])
+
+MAP_IMAGES = {
+    "Mirage": "https://raw.githubusercontent.com/lexogrine/csgocdn/master/public/images/maps/de_mirage.jpg",
+    "Inferno": "https://raw.githubusercontent.com/lexogrine/csgocdn/master/public/images/maps/de_inferno.jpg",
+    "Dust2": "https://raw.githubusercontent.com/lexogrine/csgocdn/master/public/images/maps/de_dust2.jpg",
+    "Nuke": "https://raw.githubusercontent.com/lexogrine/csgocdn/master/public/images/maps/de_nuke.jpg",
+    "Ancient": "https://raw.githubusercontent.com/lexogrine/csgocdn/master/public/images/maps/de_ancient.jpg",
+    "Anubis": "https://raw.githubusercontent.com/lexogrine/csgocdn/master/public/images/maps/de_anubis.jpg",
+    "Vertigo": "https://raw.githubusercontent.com/lexogrine/csgocdn/master/public/images/maps/de_vertigo.jpg",
+    "Cache": "https://raw.githubusercontent.com/lexogrine/csgocdn/master/public/images/maps/de_cache.jpg",
+    "Overpass": "https://raw.githubusercontent.com/lexogrine/csgocdn/master/public/images/maps/de_overpass.jpg",
+}
+
+async def get_match_details(match_id: str):
+    """Pobiera pełne szczegóły meczu (status, mapa, drużyny, wynik)"""
+    dane = await get_faceit_data(f"matches/{match_id}")
+    if not dane: return None
+    
+    # Rozpoznawanie mapy
+    voting = dane.get("voting", {})
+    map_pick = voting.get("map", {}).get("pick", [])
+    raw_map = map_pick[0] if map_pick else "W trakcie wyboru"
+    mapa = raw_map.replace("de_", "").title() if raw_map.startswith("de_") else raw_map
+    if mapa.lower() == "dust2": mapa = "Dust2"
+    
+    teams = dane.get("teams", {})
+    faction1 = teams.get("faction1", {})
+    faction2 = teams.get("faction2", {})
+    
+    # Wynik
+    results = dane.get("results", {})
+    score = results.get("score", {})
+    score_f1 = score.get("faction1", 0) if isinstance(score, dict) else 0
+    score_f2 = score.get("faction2", 0) if isinstance(score, dict) else 0
+    winner = results.get("winner") if isinstance(results, dict) else None
+    
+    status = dane.get("status", "UNKNOWN")
+    faceit_url = dane.get("faceit_url", "").replace("{lang}", "pl")
+    if not faceit_url and match_id:
+        faceit_url = f"https://www.faceit.com/pl/cs2/room/{match_id}"
+        
+    return {
+        "match_id": match_id,
+        "status": status,
+        "mapa": mapa,
+        "map_image": MAP_IMAGES.get(mapa),
+        "faceit_url": faceit_url,
+        "started_at": dane.get("started_at"),
+        "finished_at": dane.get("finished_at"),
+        "teams": {
+            "faction1": {
+                "name": faction1.get("name", "Team 1"),
+                "roster": faction1.get("roster", []),
+            },
+            "faction2": {
+                "name": faction2.get("name", "Team 2"),
+                "roster": faction2.get("roster", []),
+            }
+        },
+        "score": {"faction1": score_f1, "faction2": score_f2},
+        "winner": winner
+    }

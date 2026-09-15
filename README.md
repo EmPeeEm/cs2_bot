@@ -67,6 +67,7 @@ pm2 start main.py --name "cs2-bot" --interpreter ./venv/bin/python3
 *   `!elo` – Szybki podgląd statystyk graczy z ekipy.
 *   `!top` – Wyświetla tabelę liderów obecnego sezonu.
 *   `!elo_setup` – Tworzy kanał głosowy ze średnim ELO ekipy.
+*   `!live_setup` – Konfiguruje kanał ze śledzeniem meczów na żywo.
 *   `!sezon [start/koniec]` – Zarządzanie sezonami rankingowymi.
 *   `!help` – Pełna lista dostępnych komend.
 

@@ -43,7 +43,7 @@ class TrackerCog(commands.Cog):
             embed = discord.Embed(
                 title="⚙️ Konfiguracja Systemu",
                 description=f"Użyj: `{ctx.prefix}config [klucz] [wartość]`\n\n"
-                            "**Klucze:** `prefix`, `tilt_limit`, `main_color`, `kanal_eventow`, `kanal_sezonu`, `kanal_podsumowan_elo`\n"
+                            "**Klucze:** `prefix`, `tilt_limit`, `main_color`, `kanal_eventow`, `kanal_sezonu`, `kanal_podsumowan_elo`, `kanal_live`\n"
                             "**Klucze wizualne:** `level_emojis`, `level_default`\n\n"
                             f"*Zdania (_texts) edytuj bezpośrednio w config.py!*",
                 color=get_cfg(guild_id, "main_color", 0x2b2d31)
@@ -57,6 +57,7 @@ class TrackerCog(commands.Cog):
             embed.add_field(name="Kanał Eventów", value=f"<#{ustawienia.get('kanal_eventow')}>" if ustawienia.get('kanal_eventow') else "Brak", inline=True)
             embed.add_field(name="Kanał Sezonu", value=f"<#{ustawienia.get('kanal_sezonu')}>" if ustawienia.get('kanal_sezonu') else "Brak", inline=True)
             embed.add_field(name="Kanał ELO (Tydzień)", value=f"<#{ustawienia.get('kanal_podsumowan_elo')}>" if ustawienia.get('kanal_podsumowan_elo') else "Brak", inline=True)
+            embed.add_field(name="Kanał Live (Mecze)", value=f"<#{ustawienia.get('kanal_live')}>" if ustawienia.get('kanal_live') else "Brak", inline=True)
             
             await ctx.send(embed=embed)
             return
@@ -72,7 +73,7 @@ class TrackerCog(commands.Cog):
             operacja = None
 
         if not wartosc:
-            if klucz in ["kanal_eventow", "kanal_sezonu", "kanal_podsumowan_elo"]:
+            if klucz in ["kanal_eventow", "kanal_sezonu", "kanal_podsumowan_elo", "kanal_live"]:
                 nowa_wartosc = ctx.channel.id
             else:
                 await ctx.send(f"❌ Musisz podać wartość dla `{klucz}`.")
