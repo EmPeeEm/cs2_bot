@@ -157,49 +157,25 @@ class LiveMatchesCog(commands.Cog):
             
             # Gracze z naszego serwera w tym meczu
             our_mentions = [f"<@{d_id}>" for d_id, p_id in data["our_players"]]
-            our_str = ", ".join(our_mentions) if our_mentions else "Gracze ekipy"
+            our_str = " ".join(our_mentions) if our_mentions else "Gracze ekipy"
 
-            # Drużyny, ELO, poziomy i szanse
+            # Drużyny i składy
             teams = details.get("teams", {})
             f1 = teams.get("faction1", {})
             f2 = teams.get("faction2", {})
-            f1_name = f1.get("name", "Drużyna 1")
-            f2_name = f2.get("name", "Drużyna 2")
+            f1_roster = f1.get("roster", [])
+            f2_roster = f2.get("roster", [])
 
-            f1_stats = f1.get("stats", {})
-            f2_stats = f2.get("stats", {})
-            f1_elo = f1_stats.get("rating")
-            f2_elo = f2_stats.get("rating")
-            f1_elo_str = f"{f1_elo} ELO" if f1_elo else "Brak ELO"
-            f2_elo_str = f"{f2_elo} ELO" if f2_elo else "Brak ELO"
+            # Sprawdzamy, w której drużynie grają nasi gracze
+            f1_our_count = sum(1 for p in f1_roster if any(e_pid == p.get("player_id") for e_pid in ekipa.values()))
+            f2_our_count = sum(1 for p in f2_roster if any(e_pid == p.get("player_id") for e_pid in ekipa.values()))
 
-            f1_lvl = str(f1_stats.get("skillLevel", {}).get("average", ""))
-            f2_lvl = str(f2_stats.get("skillLevel", {}).get("average", ""))
-            f1_lvl_emoji = level_emojis.get(f1_lvl, "") if f1_lvl else ""
-            f2_lvl_emoji = level_emojis.get(f2_lvl, "") if f2_lvl else ""
-
-            f1_prob = int(round(float(f1_stats.get("winProbability", 0.5)) * 100))
-            f2_prob = int(round(float(f2_stats.get("winProbability", 0.5)) * 100))
-
-            # Czas trwania i faza gry
-            started_at = details.get("started_at")
-            configured_at = details.get("configured_at")
-            if started_at:
-                elapsed_min = int((now - started_at) // 60)
-                start_str = datetime.datetime.fromtimestamp(started_at).strftime("%H:%M")
-                time_str = f"⏱️ Czas trwania: **{elapsed_min} min** (od {start_str})"
-            elif configured_at:
-                elapsed_min = int((now - configured_at) // 60)
-                time_str = f"⏱️ Faza łączenia / Rozgrzewka (od {elapsed_min} min)"
-            else:
-                time_str = "⏱️ Faza Veto / Przygotowanie"
-
-            # Wynik
             score = details.get("score", {})
             s1 = score.get("faction1", 0)
             s2 = score.get("faction2", 0)
             total_rounds = s1 + s2
 
+            # Rozpoznanie fazy gry
             if status in ["ON_GOING", "ONGOING", "LIVE", "MATCH"]:
                 if total_rounds <= 12:
                     half_str = "1. połowa"
@@ -207,31 +183,100 @@ class LiveMatchesCog(commands.Cog):
                     half_str = "2. połowa"
                 else:
                     half_str = "Dogrywka (OT)"
-                score_str = f"**{s1} : {s2}** ({half_str})"
             elif status == "FINISHED":
-                score_str = f"**{s1} : {s2}** (Koniec spotkania)"
+                half_str = "Mecz zakończony"
             else:
-                score_str = "*Przed meczem (Veto / Łączenie)*"
+                half_str = "Veto / Łączenie z serwerem"
+
+            # Logika przypisania "Nasi" vs "Przeciwnicy" do wyeksponowania wyniku
+            if f1_our_count > 0 and f2_our_count > 0:
+                # Pojedynek wewnętrzny
+                t1_name = f1.get("name", "Drużyna 1")
+                t2_name = f2.get("name", "Drużyna 2")
+                score_header = f"# 📊 {s1} : {s2}"
+                sub_badge = f"⚔️ **Pojedynek klubowy** • {half_str}"
+                team1_label, team2_label = f"🔹 **{t1_name}:**", f"🔸 **{t2_name}:**"
+                team1_roster, team2_roster = f1_roster, f2_roster
+                t1_stats, t2_stats = f1.get("stats", {}), f2.get("stats", {})
+            elif f2_our_count > f1_our_count and f2_our_count > 0:
+                # Nasi są w faction 2
+                our_team_name = f2.get("name", "Nasi")
+                enemy_team_name = f1.get("name", "Przeciwnicy")
+                score_header = f"# 📊 {s2} : {s1}"
+                if status in ["ON_GOING", "ONGOING", "LIVE", "MATCH"]:
+                    if s2 > s1: lead_badge = f"🟢 **Prowadzenie (+{s2 - s1})**"
+                    elif s2 < s1: lead_badge = f"🔴 **Strata (-{s1 - s2})**"
+                    else: lead_badge = "🟡 **Remis**"
+                else:
+                    lead_badge = "⏳ **Przed meczem**" if status != "FINISHED" else "🏁 **Koniec**"
+                sub_badge = f"{lead_badge} • *{half_str}*"
+                team1_label, team2_label = f"🔹 **Nasza drużyna ({our_team_name}):**", f"🔸 **Przeciwnicy ({enemy_team_name}):**"
+                team1_roster, team2_roster = f2_roster, f1_roster
+                t1_stats, t2_stats = f2.get("stats", {}), f1.get("stats", {})
+            else:
+                # Nasi są w faction 1 (lub domyślnie)
+                our_team_name = f1.get("name", "Nasi")
+                enemy_team_name = f2.get("name", "Przeciwnicy")
+                score_header = f"# 📊 {s1} : {s2}"
+                if status in ["ON_GOING", "ONGOING", "LIVE", "MATCH"]:
+                    if s1 > s2: lead_badge = f"🟢 **Prowadzenie (+{s1 - s2})**"
+                    elif s1 < s2: lead_badge = f"🔴 **Strata (-{s2 - s1})**"
+                    else: lead_badge = "🟡 **Remis**"
+                else:
+                    lead_badge = "⏳ **Przed meczem**" if status != "FINISHED" else "🏁 **Koniec**"
+                sub_badge = f"{lead_badge} • *{half_str}*"
+                team1_label, team2_label = f"🔹 **Nasza drużyna ({our_team_name}):**", f"🔸 **Przeciwnicy ({enemy_team_name}):**"
+                team1_roster, team2_roster = f1_roster, f2_roster
+                t1_stats, t2_stats = f1.get("stats", {}), f2.get("stats", {})
+
+            # Statystyki ELO
+            t1_elo = t1_stats.get("rating")
+            t2_elo = t2_stats.get("rating")
+            t1_elo_str = f"{t1_elo} ELO" if t1_elo else "Brak ELO"
+            t2_elo_str = f"{t2_elo} ELO" if t2_elo else "Brak ELO"
+
+            t1_lvl = str(t1_stats.get("skillLevel", {}).get("average", ""))
+            t2_lvl = str(t2_stats.get("skillLevel", {}).get("average", ""))
+            t1_lvl_emoji = level_emojis.get(t1_lvl, "") if t1_lvl else ""
+            t2_lvl_emoji = level_emojis.get(t2_lvl, "") if t2_lvl else ""
+
+            t1_prob = int(round(float(t1_stats.get("winProbability", 0.5)) * 100))
+            t2_prob = int(round(float(t2_stats.get("winProbability", 0.5)) * 100))
+
+            # Czas gry
+            started_at = details.get("started_at")
+            configured_at = details.get("configured_at")
+            if started_at:
+                elapsed_min = int((now - started_at) // 60)
+                start_str = datetime.datetime.fromtimestamp(started_at).strftime("%H:%M")
+                time_str = f"**{elapsed_min} min** (od {start_str})"
+            elif configured_at:
+                elapsed_min = int((now - configured_at) // 60)
+                time_str = f"Rozgrzewka (od {elapsed_min} min)"
+            else:
+                time_str = "Veto / Przygotowanie"
 
             # Formatuje składy z emotkami leveli
-            f1_roster_str = format_roster(f1.get("roster", []))
-            f2_roster_str = format_roster(f2.get("roster", []))
+            team1_roster_str = format_roster(team1_roster)
+            team2_roster_str = format_roster(team2_roster)
 
             # Miniaturka pierwszej mapy
             if not thumbnail_set and details.get("map_image"):
                 embed.set_thumbnail(url=details["map_image"])
                 thumbnail_set = True
 
-            pole_nazwa = f"🗺️ Mapa: {mapa} | {status_text}"
+            pole_nazwa = f"🗺️ MAPA: {mapa.upper()}  ┃  {status_text}"
             pole_wartosc = (
-                f"👥 **Nasi gracze:** {our_str}\n"
-                f"⚔️ **Pojedynek:** `{f1_name}` vs `{f2_name}`\n"
-                f"📊 **Wynik:** {score_str}\n"
-                f"{time_str}\n"
-                f"📈 **Średnie ELO:** `{f1_elo_str}` {f1_lvl_emoji} ({f1_prob}%) vs `{f2_elo_str}` {f2_lvl_emoji} ({f2_prob}%)\n\n"
-                f"🔹 **{f1_name}:**\n{f1_roster_str}\n\n"
-                f"🔸 **{f2_name}:**\n{f2_roster_str}\n\n"
-                f"🔗 [Przejdź do pokoju meczowego]({details['faceit_url']})"
+                f"{score_header}\n"
+                f"{sub_badge}\n"
+                f"👥 **W meczu:** {our_str}\n\n"
+                f"> ⏱️ **Czas gry:** {time_str}\n"
+                f"> 📈 **Średnie ELO:** `{t1_elo_str}` {t1_lvl_emoji} ({t1_prob}%) vs `{t2_elo_str}` {t2_lvl_emoji} ({t2_prob}%)\n\n"
+                f"{team1_label}\n"
+                f"{team1_roster_str}\n\n"
+                f"{team2_label}\n"
+                f"{team2_roster_str}\n\n"
+                f"🔗 [Kliknij, aby otworzyć pokój meczowy Faceit]({details['faceit_url']})"
             )
             
             if data.get("finished_at"):
