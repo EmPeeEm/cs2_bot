@@ -4,3 +4,4 @@ aiohttp
 demoparser2
 pandas
 matplotlib
+curl_cffi

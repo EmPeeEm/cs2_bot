@@ -67,40 +67,70 @@ async def get_latest_match_id(player_id: str):
         return historia["items"][0].get("match_id")
     return None
 
+try:
+    from curl_cffi.requests import AsyncSession as CurlAsyncSession
+    HAS_CURL_CFFI = True
+except ImportError:
+    HAS_CURL_CFFI = False
+
 async def get_player_ongoing_match_id(player_id: str):
     """Sprawdza czy gracz jest w aktywnym meczu (obsługuje endpointy Faceit groupByState oraz Open API)"""
-    session = await get_session()
+    url_group = f"https://api.faceit.com/match/v1/matches/groupByState?userId={player_id}"
     
-    # 1. Sprawdzenie Faceit groupByState (natychmiastowe wykrywanie w czasie rzeczywistym)
-    try:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            "Accept": "application/json, text/plain, */*",
-            "Accept-Language": "en-US,en;q=0.9",
-            "Sec-Ch-Ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
-            "Sec-Ch-Ua-Mobile": "?0",
-            "Sec-Ch-Ua-Platform": '"Windows"',
-            "Sec-Fetch-Dest": "empty",
-            "Sec-Fetch-Mode": "cors",
-            "Sec-Fetch-Site": "same-site",
-            "Referer": "https://www.faceit.com/",
-            "Origin": "https://www.faceit.com"
-        }
-        url_group = f"https://api.faceit.com/match/v1/matches/groupByState?userId={player_id}"
-        async with session.get(url_group, headers=headers, timeout=aiohttp.ClientTimeout(total=5)) as resp:
-            if resp.status == 200:
-                data = await resp.json()
-                payload = data.get("payload", {})
-                for state in ["ONGOING", "MATCH", "SUBSTITUTION", "CHECKIN", "CALL", "VOTING", "CONFIGURING", "READY"]:
-                    matches = payload.get(state, [])
-                    if matches:
-                        m_id = matches[0].get("id") or matches[0].get("matchId")
-                        if m_id:
-                            return m_id
-            elif resp.status != 404:
-                print(f"⚠️ [LIVE API] groupByState status {resp.status} dla {player_id}")
-    except Exception as e:
-        print(f"⚠️ [LIVE API] Błąd groupByState dla {player_id}: {e}")
+    # 1. Sprawdzenie Faceit groupByState przez curl_cffi (impersonacja Chrome omijająca Cloudflare na VPS)
+    if HAS_CURL_CFFI:
+        try:
+            headers = {
+                "Accept": "application/json, text/plain, */*",
+                "Referer": "https://www.faceit.com/",
+                "Origin": "https://www.faceit.com"
+            }
+            async with CurlAsyncSession(impersonate="chrome124") as curl_session:
+                resp = await curl_session.get(url_group, headers=headers, timeout=5)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    payload = data.get("payload", {})
+                    for state in ["ONGOING", "MATCH", "SUBSTITUTION", "CHECKIN", "CALL", "VOTING", "CONFIGURING", "READY"]:
+                        matches = payload.get(state, [])
+                        if matches:
+                            m_id = matches[0].get("id") or matches[0].get("matchId")
+                            if m_id:
+                                return m_id
+                elif resp.status_code != 404:
+                    print(f"⚠️ [LIVE API] groupByState status {resp.status_code} dla {player_id}")
+        except Exception as e:
+            print(f"⚠️ [LIVE API] Błąd curl_cffi dla {player_id}: {e}")
+    else:
+        # Fallback aiohttp
+        session = await get_session()
+        try:
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                "Accept": "application/json, text/plain, */*",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Sec-Ch-Ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+                "Sec-Ch-Ua-Mobile": "?0",
+                "Sec-Ch-Ua-Platform": '"Windows"',
+                "Sec-Fetch-Dest": "empty",
+                "Sec-Fetch-Mode": "cors",
+                "Sec-Fetch-Site": "same-site",
+                "Referer": "https://www.faceit.com/",
+                "Origin": "https://www.faceit.com"
+            }
+            async with session.get(url_group, headers=headers, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    payload = data.get("payload", {})
+                    for state in ["ONGOING", "MATCH", "SUBSTITUTION", "CHECKIN", "CALL", "VOTING", "CONFIGURING", "READY"]:
+                        matches = payload.get(state, [])
+                        if matches:
+                            m_id = matches[0].get("id") or matches[0].get("matchId")
+                            if m_id:
+                                return m_id
+                elif resp.status != 404:
+                    print(f"⚠️ [LIVE API] groupByState status {resp.status} dla {player_id}")
+        except Exception as e:
+            print(f"⚠️ [LIVE API] Błąd groupByState dla {player_id}: {e}")
 
     # 2. Fallback: Open Data API history
     try:
