@@ -144,7 +144,7 @@ class LiveMatchesCog(commands.Cog):
                 emoji = level_emojis.get(lvl, level_default)
                 is_our = any(e_pid == p_id for e_pid in ekipa.values())
                 if is_our:
-                    formatted.append(f"{emoji} **{nick}** ⭐️")
+                    formatted.append(f"{emoji} **{nick}**")
                 else:
                     formatted.append(f"{emoji} {nick}")
             return " • ".join(formatted) if formatted else "*Brak danych o składzie*"
@@ -307,6 +307,25 @@ class LiveMatchesCog(commands.Cog):
 
         active = await self._fetch_guild_active_matches(guild_id)
         embed, view = self._build_dashboard_embed(guild_id, active)
+
+        # Aktualizacja nazwy kanału (🔴 gdy mecz trwa, 🟢 gdy brak meczów)
+        try:
+            target_emoji = "🔴" if active else "🟢"
+            current_name = channel.name
+            clean_name = current_name
+            for em in ["🔴", "🟢"]:
+                if clean_name.startswith(em):
+                    clean_name = clean_name[len(em):]
+                    break
+            clean_name = clean_name.lstrip("・-—_ ")
+            if not clean_name:
+                clean_name = "mecze-live"
+            target_name = f"{target_emoji}・{clean_name}"
+
+            if current_name != target_name:
+                await channel.edit(name=target_name)
+        except (discord.Forbidden, discord.HTTPException):
+            pass
 
         msg_id = ustawienia.get("live_msg_id")
         msg = None
