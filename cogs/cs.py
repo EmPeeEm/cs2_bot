@@ -11,6 +11,72 @@ from utils.database import (
 )
 from utils.charts import generuj_wykres_elo
 
+class HelpView(discord.ui.View):
+    def __init__(self, bot_cog, ctx, current_page="main"):
+        super().__init__(timeout=180)
+        self.bot_cog = bot_cog
+        self.ctx = ctx
+        self.current_page = current_page
+        self._update_buttons()
+
+    def _update_buttons(self):
+        self.clear_items()
+        
+        btn_main = discord.ui.Button(
+            label="Menu Główne",
+            emoji="🏠",
+            style=discord.ButtonStyle.primary if self.current_page == "main" else discord.ButtonStyle.secondary,
+            custom_id="help_main",
+            disabled=(self.current_page == "main")
+        )
+        btn_user = discord.ui.Button(
+            label="Komendy Gracza",
+            emoji="👤",
+            style=discord.ButtonStyle.primary if self.current_page == "user" else discord.ButtonStyle.secondary,
+            custom_id="help_user",
+            disabled=(self.current_page == "user")
+        )
+        btn_admin = discord.ui.Button(
+            label="Komendy Admina",
+            emoji="🛠️",
+            style=discord.ButtonStyle.danger if self.current_page == "admin" else discord.ButtonStyle.secondary,
+            custom_id="help_admin",
+            disabled=(self.current_page == "admin")
+        )
+        
+        btn_main.callback = self.on_main_click
+        btn_user.callback = self.on_user_click
+        btn_admin.callback = self.on_admin_click
+        
+        self.add_item(btn_main)
+        self.add_item(btn_user)
+        self.add_item(btn_admin)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.ctx.author.id:
+            await interaction.response.send_message("❌ Tylko osoba, która wywołała komendę pomocy, może korzystać z tych przycisków.", ephemeral=True)
+            return False
+        return True
+
+    async def on_main_click(self, interaction: discord.Interaction):
+        self.current_page = "main"
+        self._update_buttons()
+        embed = self.bot_cog.get_main_help_embed(self.ctx)
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    async def on_user_click(self, interaction: discord.Interaction):
+        self.current_page = "user"
+        self._update_buttons()
+        embed = self.bot_cog.get_user_help_embed(self.ctx)
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    async def on_admin_click(self, interaction: discord.Interaction):
+        self.current_page = "admin"
+        self._update_buttons()
+        embed = self.bot_cog.get_admin_help_embed(self.ctx)
+        await interaction.response.edit_message(embed=embed, view=self)
+
+
 class CSCommands(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -796,111 +862,431 @@ class CSCommands(commands.Cog):
         await msg.edit(content=None, embed=embed)
 
 
+    def get_main_help_embed(self, ctx):
+        guild_id = ctx.guild.id
+        color = get_cfg(guild_id, "main_color", 0x2b2d31)
+        is_admin = ctx.author.guild_permissions.administrator if hasattr(ctx.author, "guild_permissions") else False
+        
+        embed = discord.Embed(
+            title="🎮 CS2 Faceit Bot — Centrum Pomocy",
+            description=(
+                f"Bot automatycznie śledzi mecze, statystyki oraz formę graczy Faceit.\n"
+                f"Prefix na tym serwerze: `{ctx.prefix}` (lub wzmianka bota @Bot)\n\n"
+                f"📌 **Szybka nawigacja:** Kliknij przyciski poniżej lub wpisz:\n"
+                f"• `{ctx.prefix}pomoc user` — szczegółowy spis komend gracza\n"
+                f"• `{ctx.prefix}pomoc admin` — spis narzędzi administracyjnych\n"
+                f"• `{ctx.prefix}pomoc [nazwa_komendy]` — pełny opis konkretnej komendy"
+            ),
+            color=color
+        )
+        
+        embed.add_field(
+            name="👤 PROFIL I KONTO",
+            value=(
+                f"`{ctx.prefix}polacz` • Powiązanie profilu Faceit z kontem Discord\n"
+                f"`{ctx.prefix}odlacz` • Odłączenie konta z ekipy serwera\n"
+                f"`{ctx.prefix}stats` • Pełny paszport statystyk gracza (K/D, ADR, ELO)\n"
+                f"`{ctx.prefix}elo` • Szybki podgląd punktów ELO i paska do awansu"
+            ),
+            inline=False
+        )
+        
+        embed.add_field(
+            name="📊 ANALIZA MECZÓW I FORMA",
+            value=(
+                f"`{ctx.prefix}last` • Raport z ostatniego meczu (+/- ELO, HLTV 2.0)\n"
+                f"`{ctx.prefix}recent` • Średnie statystyki z ostatnich gier (2-100)\n"
+                f"`{ctx.prefix}wykres` • Wykres liniowy trajektorii punktów ELO\n"
+                f"`{ctx.prefix}history` • Ostatnie 5 meczów z wynikami i linkami\n"
+                f"`{ctx.prefix}maps` • Skuteczność i Win Rate na poszczególnych mapach\n"
+                f"`{ctx.prefix}compare` • Arena 1v1 — bezpośrednie porównanie graczy"
+            ),
+            inline=False
+        )
+        
+        embed.add_field(
+            name="🏆 RANKINGI I SPOŁECZNOŚĆ",
+            value=(
+                f"`{ctx.prefix}top` • Tabela liderów ekipy serwera wg ELO\n"
+                f"`{ctx.prefix}streaks` • Zestawienie aktualnych serii (win/loss streak)"
+            ),
+            inline=False
+        )
+        
+        if is_admin:
+            embed.add_field(
+                name="🛠️ ADMINISTRACJA SERWEREM (Widoczne dla Admina)",
+                value=(
+                    f"`{ctx.prefix}config` • Panel konfiguracji bota (prefix, kanały, kolory)\n"
+                    f"`{ctx.prefix}sezon` • Zarządzanie sezonami rankingowymi i nagrodami MVP\n"
+                    f"`{ctx.prefix}live_setup` • Konfiguracja dedykowanego kanału meczów live\n"
+                    f"`{ctx.prefix}rekordy_setup` • Inicjalizacja kanału Hali Sław z rekordami\n"
+                    f"`{ctx.prefix}elo_setup` • Utworzenie kanału głosowego ze średnim ELO\n"
+                    f"`{ctx.prefix}tilt_config` • Ustawienia czułości alertów Tilt-Meter"
+                ),
+                inline=False
+            )
+        
+        embed.set_footer(text=f"Więcej informacji: {ctx.prefix}pomoc <nazwa_komendy> | Użyj przycisków poniżej")
+        return embed
+
+    def get_user_help_embed(self, ctx):
+        guild_id = ctx.guild.id
+        color = get_cfg(guild_id, "main_color", 0x2b2d31)
+        
+        embed = discord.Embed(
+            title="👤 Komendy Gracza — Pełny Spis",
+            description="Większość komend akceptuje nick Faceit lub oznaczenie gracza (`@Gracz`). Jeśli połączyłeś konto (`!polacz`), możesz wpisywać komendy bez argumentów!",
+            color=color
+        )
+        
+        embed.add_field(
+            name="🔗 Zarządzanie Kontem",
+            value=(
+                f"• `{ctx.prefix}polacz <nick_faceit>` — Łączy Discorda z kontem Faceit.\n"
+                f"• `{ctx.prefix}odlacz` — Usuwa powiązanie konta z profilem Discord."
+            ),
+            inline=False
+        )
+        
+        embed.add_field(
+            name="📈 Statystyki & Forma",
+            value=(
+                f"• `{ctx.prefix}stats [nick/ping]` — Pełny profil gracza (ELO, KD, ADR, HS%, WR).\n"
+                f"• `{ctx.prefix}elo [nick/ping]` — Aktualne punkty ELO, poziom i brakujące punkty do awansu/spadku.\n"
+                f"• `{ctx.prefix}last [nick/ping]` — Szczegółowa karta ostatniego meczu (HLTV 2.0, kille, UD, +/- ELO).\n"
+                f"• `{ctx.prefix}recent [ilość] [nick/ping]` — Podsumowanie formy z ostatnich gier (domyślnie 20, max 100).\n"
+                f"• `{ctx.prefix}wykres [ilość] [nick/ping]` — Wykres liniowy punktów ELO z ostatnich gier (2-100).\n"
+                f"• `{ctx.prefix}history [nick/ping]` — Szybka lista 5 ostatnich meczów wraz z linkami.\n"
+                f"• `{ctx.prefix}maps [nick/ping]` — Analiza skuteczności (Win Rate, mecze) na mapach turniejowych."
+            ),
+            inline=False
+        )
+        
+        embed.add_field(
+            name="⚔️ Rywalizacja & Ekipa",
+            value=(
+                f"• `{ctx.prefix}compare [ilość] <gracz1> <gracz2>` — Pojedynek 1v1 dwóch graczy na bazie ostatnich gier.\n"
+                f"• `{ctx.prefix}top` — Ranking serwerowy ekipy posortowany według ELO.\n"
+                f"• `{ctx.prefix}streaks` — Tablica pass zwycięstw i porażek członków ekipy."
+            ),
+            inline=False
+        )
+        
+        embed.set_footer(text=f"Szczegóły komendy: {ctx.prefix}pomoc [nazwa]")
+        return embed
+
+    def get_admin_help_embed(self, ctx):
+        guild_id = ctx.guild.id
+        color = get_cfg(guild_id, "main_color", 0x2b2d31)
+        
+        embed = discord.Embed(
+            title="🛠️ Komendy Administratora — Zarządzanie Botem",
+            description="Poniższe komendy wymagają uprawnień **Administratora** na serwerze Discord.",
+            color=color
+        )
+        
+        embed.add_field(
+            name="⚙️ Konfiguracja & Alerty",
+            value=(
+                f"• `{ctx.prefix}config` — Panel główny lub edycja `{ctx.prefix}config [klucz] [wartość]` (np. `prefix`, `kanal_eventow`, `main_color`).\n"
+                f"• `{ctx.prefix}tilt_config` — Menu wyboru progu alertów Tilt-Meter (serie porażek/zwycięstw).\n"
+                f"• `{ctx.prefix}elo_setup` — Tworzy automatyczny kanał głosowy ze średnim ELO ekipy."
+            ),
+            inline=False
+        )
+        
+        embed.add_field(
+            name="🏆 System Sezonowy",
+            value=(
+                f"• `{ctx.prefix}sezon` — Interaktywny panel sezonu (Start, Koniec z MVP, Podgląd tabeli).\n"
+                f"• `{ctx.prefix}sezony` — Lista wszystkich sezonów z ID i archiwalnymi zwycięzcami MVP.\n"
+                f"• `{ctx.prefix}sezon_reload` — Wymusza natychmiastowe odświeżenie tabeli sezonu na kanale.\n"
+                f"• `{ctx.prefix}sezon_repost` — Usuwa starą wiadomość z tabelą i wysyła nową na dół kanału.\n"
+                f"• `{ctx.prefix}sezon_set_mvp <ID/nazwa> <@gracz> [progres]` — Ręczne przypisanie MVP do sezonu."
+            ),
+            inline=False
+        )
+        
+        embed.add_field(
+            name="🔴 Mecze Na Żywo (Live Tracker)",
+            value=(
+                f"• `{ctx.prefix}live_setup [#kanał]` — Konfiguracja kanału ze śledzeniem meczów na żywo w czasie rzeczywistym.\n"
+                f"• `{ctx.prefix}live_reload` — Natychmiastowe odświeżenie dashboardu meczów live.\n"
+                f"• `{ctx.prefix}live_repost` — Przeniesienie dashboardu live na sam dół kanału."
+            ),
+            inline=False
+        )
+        
+        embed.add_field(
+            name="🎖️ Hala Sław & Rekordy",
+            value=(
+                f"• `{ctx.prefix}rekordy_setup` — Tworzy kanał `🏆・hala-sław` z dedykowanymi kartami rekordów.\n"
+                f"• `{ctx.prefix}rekordy_reload` — Wymusza ponowne przeliczenie i odświeżenie kart rekordów."
+            ),
+            inline=False
+        )
+        
+        embed.set_footer(text=f"Szczegóły wybranej komendy: {ctx.prefix}pomoc [nazwa]")
+        return embed
+
     @commands.command(name="pomoc", aliases=["komendy", "help"])
     async def komenda_pomoc(self, ctx, command_name: str = None):
-        """Dynamiczny system pomocy z obsługą szczegółów."""
+        """Dynamiczny i kompletny system pomocy z podziałem na role."""
         guild_id = ctx.guild.id
+        
+        # 1. Sprawdzenie widoków kategorii
         if not command_name:
-            # GŁÓWNY WIDOK POMOCY
-            embed = discord.Embed(
-                title="🎮 CS2 Faceit Bot — Instrukcja Obsługi",
-                description=(f"Bot pozwala na monitorowanie postępów i statystyk Faceit.\n"
-                             f"Użyj `{ctx.prefix}pomoc [nazwa]` aby zobaczyć szczegóły komendy.\n\n"
-                             f"Większość komend obsługuje **ping gracza** (np. `{ctx.prefix}stats @Gracz`)."),
-                color=get_cfg(guild_id, "main_color", 0x2b2d31)
-            )
-            
-            embed.add_field(
-                name="👤 PROFIL I POWIĄZANIA", 
-                value=f"🔹 `{ctx.prefix}polacz`, `{ctx.prefix}odlacz`, `{ctx.prefix}stats`, `{ctx.prefix}elo`", 
-                inline=False
-            )
-            
-            embed.add_field(
-                name="📊 ANALIZA MECZÓW", 
-                value=f"🔹 `{ctx.prefix}last`, `{ctx.prefix}recent`, `{ctx.prefix}history`, `{ctx.prefix}maps`", 
-                inline=False
-            )
-            
-            embed.add_field(
-                name="🏆 EKIPA I RYWALIZACJA", 
-                value=f"🔹 `{ctx.prefix}top`, `{ctx.prefix}streaks`, `{ctx.prefix}compare`", 
-                inline=False
-            )
-            
-            if ctx.author.guild_permissions.administrator:
-                embed.add_field(
-                    name="🛠️ ADMINISTRACJA", 
-                    value=f"🔸 `{ctx.prefix}config`, `{ctx.prefix}sezon`, `{ctx.prefix}sezon_reload`, `{ctx.prefix}tilt_config` ", 
-                    inline=False
-                )
-            
-            embed.set_footer(text=f"Prefix bota: {ctx.prefix} | Wszystkie ustawienia pod {ctx.prefix}config")
-            await ctx.send(embed=embed)
+            embed = self.get_main_help_embed(ctx)
+            view = HelpView(self, ctx, current_page="main")
+            await ctx.send(embed=embed, view=view)
             return
 
-        # SZCZEGÓŁOWY WIDOK KOMENDY
-        target_command = self.bot.get_command(command_name)
+        cmd_lower = command_name.lower().strip()
+        
+        if cmd_lower in ["admin", "adm", "administrator", "zarzadzanie", "a"]:
+            embed = self.get_admin_help_embed(ctx)
+            view = HelpView(self, ctx, current_page="admin")
+            await ctx.send(embed=embed, view=view)
+            return
+
+        if cmd_lower in ["user", "gracz", "gracze", "uzytkownik", "u"]:
+            embed = self.get_user_help_embed(ctx)
+            view = HelpView(self, ctx, current_page="user")
+            await ctx.send(embed=embed, view=view)
+            return
+
+        # 2. SZCZEGÓŁOWY WIDOK DOWOLNEJ KOMENDY
+        target_command = self.bot.get_command(cmd_lower)
         
         if not target_command:
-            await ctx.send(f"❌ Nie znalazłem komendy o nazwie `{command_name}`. Wpisz `{ctx.prefix}pomoc` aby zobaczyć listę.")
+            await ctx.send(
+                f"❌ Nie znaleziono komendy ani sekcji o nazwie `{command_name}`.\n"
+                f"Wpisz `{ctx.prefix}pomoc`, aby zobaczyć pełną listę dostępnych opcji."
+            )
             return
 
-        # Mapowanie szczegółowych opisów (jeśli nie chcemy polegać na docstringach)
-        descriptions = {
-            "polacz": "Łączy Twój profil Discord z kontem Faceit. Pozwala to na używanie komend bez wpisywania nicku.",
-            "stats": "Wyświetla kompletny paszport statystyk gracza: ELO, poziom, K/D, ADR oraz winstreaki.",
-            "last": "Szczegółowa analiza ostatniego meczu. Pokazuje kille, HLTV rating oraz wpływ na punkty ELO.",
-            "recent": "Analiza formy z ostatniej serii gier pobranych z bazy danych (domyślnie 20). Pokazuje średnie statystyki i bilans ELO.",
-            "compare": "Arena 1v1. Porównuje formę dwóch graczy ze wskazaniem lidera w każdej kategorii.",
-            "history": "Wyświetla listę 5 ostatnich spotkań wraz z wynikiem i Twoimi statystykami.",
-            "maps": "Twoja skuteczność na poszczególnych mapach 5v5. Pokazuje WR i K/D.",
-            "elo": "Szybki podgląd ELO i informacji ile punktów brakuje do awansu na kolejny poziom.",
-            "config": "Panel zarządzania bota. Pozwala zmieniać prefix, kolory i kanały powiadomień.",
-            "sezon": "System rankingowy wewnątrz serwera. Pozwala zarządzać startem i końcem sezonu.",
-            "sezon_reload": "Ręcznie wymusza aktualizację wiadomości z rankingiem sezonowym.",
-            "tilt_config": "Ustawienia alertów dla serii wygranych/porażek (tzw. Tilt-Meter).",
-            "wykres": "Generuje zaawansowany wykres punktów ELO na przestrzeni ostatnich meczów."
-        }
-
-        # Parametry użycia
-        usage_map = {
-            "polacz": "[nick_faceit]",
-            "stats": "[nick/ping]",
-            "last": "[nick/ping]",
-            "recent": "[ilość] [nick/ping]",
-            "compare": "[ilość] [nick1/ping1] [nick2/ping2]",
-            "history": "[nick/ping]",
-            "maps": "[nick/ping]",
-            "elo": "[nick/ping]",
-            "config": "[klucz] [wartość]",
-            "sezon": "[operacja]",
-            "tilt_config": "[limit/off]",
-            "wykres": "[ilość] [nick/ping]"
+        # Baza opisów, użycia i przykładów
+        meta_komend = {
+            "polacz": {
+                "desc": "Łączy profil Discord z kontem Faceit. Dodaje gracza do monitorowanej ekipy serwera oraz pozwala używać komend bez każdorazowego podawania nicku.",
+                "usage": "<nick_faceit>",
+                "admin": False,
+                "examples": [f"{ctx.prefix}polacz s1mple", f"{ctx.prefix}polacz NiKo"],
+                "note": "Każdy użytkownik może powiązać jedno konto Faceit."
+            },
+            "odlacz": {
+                "desc": "Usuwa powiązanie Twojego konta Discord z profilem Faceit na tym serwerze.",
+                "usage": "",
+                "admin": False,
+                "examples": [f"{ctx.prefix}odlacz"],
+                "note": "Po odłączeniu bot przestanie uwzględniać Twoje mecze w powiadomieniach i rankingu."
+            },
+            "stats": {
+                "desc": "Wyświetla kompletny paszport statystyk gracza: aktualne ELO, poziom (z emoji), winrate ogólny, bilans K/D, średnie ADR, aktualną passę (streak), liczbę meczów oraz wskaźnik formy.",
+                "usage": "[nick / @gracz]",
+                "admin": False,
+                "examples": [f"{ctx.prefix}stats", f"{ctx.prefix}stats @Gracz", f"{ctx.prefix}stats m0NESY"],
+                "note": "Wpisane bez argumentów wyświetla statystyki powiązanego konta autora."
+            },
+            "elo": {
+                "desc": "Szybki podgląd poziomu Faceit, aktualnej liczby punktów ELO oraz paska postępu z informacją ile punktów brakuje do awansu na wyższy poziom lub spadku.",
+                "usage": "[nick / @gracz]",
+                "admin": False,
+                "examples": [f"{ctx.prefix}elo", f"{ctx.prefix}elo @Gracz", f"{ctx.prefix}elo donk"],
+                "note": "Obsługuje zarówno ping gracza, jak i bezpośredni nick Faceit."
+            },
+            "last": {
+                "desc": "Szczegółowa analiza ostatniego meczu: wynik, mapa, kille/dedy/asysty, HLTV Rating 2.0, ADR, HS%, Utility Damage oraz bezpośrednią zmianę ELO (+/-).",
+                "usage": "[nick / @gracz]",
+                "admin": False,
+                "examples": [f"{ctx.prefix}last", f"{ctx.prefix}last @Gracz", f"{ctx.prefix}last ropz"],
+                "note": "Zawiera również bezpośredni odnośnik do meczu na platformie Faceit."
+            },
+            "recent": {
+                "desc": "Analiza formy ze wskazanej serii ostatnich meczów pobranych z bazy danych bota (domyślnie 20). Wylicza średnie K/D, zabójstwa/mecz, HS%, ADR oraz sumaryczny bilans ELO.",
+                "usage": "[ilość (2-100)] [nick / @gracz]",
+                "admin": False,
+                "examples": [f"{ctx.prefix}recent", f"{ctx.prefix}recent 10", f"{ctx.prefix}recent 30 @Gracz"],
+                "note": "Możesz podać liczbę meczów w zakresie od 2 do 100."
+            },
+            "wykres": {
+                "desc": "Generuje przejrzysty wykres liniowy punktów ELO na przestrzeni ostatnich spotkań, obrazujący aktualną tendencję i formę gracza.",
+                "usage": "[ilość (2-100)] [nick / @gracz]",
+                "admin": False,
+                "examples": [f"{ctx.prefix}wykres", f"{ctx.prefix}wykres 15", f"{ctx.prefix}wykres @Gracz 50"],
+                "note": "Argumenty (ilość i nick/ping) można podawać w dowolnej kolejności."
+            },
+            "history": {
+                "desc": "Wyświetla listę 5 ostatnich spotkań gracza wraz z datą, mapą, wynikiem spotkania, statystykami K-D, K/D oraz różnicą punktów ELO.",
+                "usage": "[nick / @gracz]",
+                "admin": False,
+                "examples": [f"{ctx.prefix}history", f"{ctx.prefix}history @Gracz"],
+                "note": "Idealne do szybkiego sprawdzenia bilansu ostatnich gier."
+            },
+            "maps": {
+                "desc": "Zestawienie skuteczności na poszczególnych mapach turniejowych 5v5. Pokazuje liczbę meczów, Win Rate % oraz średnie K/D.",
+                "usage": "[nick / @gracz]",
+                "admin": False,
+                "examples": [f"{ctx.prefix}maps", f"{ctx.prefix}maps @Gracz"],
+                "note": "Pozwala ocenić najsilniejsze i najsłabsze mapy w puli."
+            },
+            "compare": {
+                "desc": "Arena 1v1. Bezpośrednie porównanie formy dwóch graczy na bazie ostatnich meczów ze wskazaniem lidera w każdej kategorii statystyk.",
+                "usage": "[ilość] <gracz1> <gracz2>",
+                "admin": False,
+                "examples": [f"{ctx.prefix}compare @Gracz1 @Gracz2", f"{ctx.prefix}compare 15 Nick1 Nick2"],
+                "note": "Graczy można podawać jako wzmianki (@ping) lub bezpośrednie nicki Faceit."
+            },
+            "top": {
+                "desc": "Wyświetla tabelę liderów zarejestrowanych członków ekipy serwera, posortowaną według aktualnego poziomu i punktów ELO.",
+                "usage": "",
+                "admin": False,
+                "examples": [f"{ctx.prefix}top"],
+                "note": "Uwzględnia wszystkich graczy powiązanych komendą !polacz."
+            },
+            "streaks": {
+                "desc": "Zestawienie aktualnych serii zwycięstw lub porażek z rzędu dla wszystkich zarejestrowanych graczy z ekipy serwera.",
+                "usage": "",
+                "admin": False,
+                "examples": [f"{ctx.prefix}streaks"],
+                "note": "Pokazuje kto jest na fali (Win Streak), a kto w strefie tiltu (Loss Streak)."
+            },
+            "pomoc": {
+                "desc": "Centrum pomocy i interaktywna dokumentacja bota. Pozwala przeglądać komendy gracza, narzędzia administratora lub szczegóły wybranej komendy.",
+                "usage": "[komenda / admin / user]",
+                "admin": False,
+                "examples": [f"{ctx.prefix}pomoc", f"{ctx.prefix}pomoc admin", f"{ctx.prefix}pomoc stats"],
+                "note": "Działa również pod aliasami !help oraz !komendy."
+            },
+            "config": {
+                "desc": "Panel zarządzania konfiguracją bota per serwer. Umożliwia zmianę prefixu, kanałów powiadomień, głównego koloru embedów oraz progów alertów.",
+                "usage": "[klucz] [wartość]",
+                "admin": True,
+                "examples": [
+                    f"{ctx.prefix}config",
+                    f"{ctx.prefix}config prefix ?",
+                    f"{ctx.prefix}config kanal_eventow #powiadomienia",
+                    f"{ctx.prefix}config main_color #FF5500"
+                ],
+                "note": "Klucze kanałów: kanal_eventow, kanal_sezonu, kanal_podsumowan_elo, kanal_live."
+            },
+            "tilt_config": {
+                "desc": "Otwiera interaktywne menu wyboru czułości alertów Tilt-Meter (liczba porażek/zwycięstw z rzędu, po której bot wysyła powiadomienie/roast).",
+                "usage": "",
+                "admin": True,
+                "examples": [f"{ctx.prefix}tilt_config"],
+                "note": "Można wybrać próg 3, 4, 5 gier lub całkowicie wyłączyć powiadomienia."
+            },
+            "elo_setup": {
+                "desc": "Automatycznie tworzy i konfiguruje kanał głosowy, którego nazwa wyświetla uśrednione punkty ELO całej zarejestrowanej ekipy serwera na żywo.",
+                "usage": "",
+                "admin": True,
+                "examples": [f"{ctx.prefix}elo_setup"],
+                "note": "Wymaga uprawnień do zarządzania kanałami."
+            },
+            "sezon": {
+                "desc": "Główny panel zarządzania systemem sezonów rankingowych serwera. Pozwala rozpocząć nowy sezon, wyświetlić tabelę lub zamknąć sezon z nagrodą MVP.",
+                "usage": "",
+                "admin": True,
+                "examples": [f"{ctx.prefix}sezon"],
+                "note": "Zakończenie sezonu automatycznie archiwizuje wyniki i aktualizuje Halę Sław."
+            },
+            "sezony": {
+                "desc": "Wyświetla listę wszystkich zarejestrowanych sezonów w bazie danych z podziałem na status (aktywny / zakończony) oraz przypisanych zwycięzców MVP.",
+                "usage": "",
+                "admin": True,
+                "examples": [f"{ctx.prefix}sezony"],
+                "note": "Zawiera numery ID sezonów potrzebne do komendy !sezon_set_mvp."
+            },
+            "sezon_reload": {
+                "desc": "Ręcznie wymusza natychmiastowe przeliczenie i zaktualizowanie aktywnej wiadomości z tabelą sezonu na dedykowanym kanale.",
+                "usage": "",
+                "admin": True,
+                "examples": [f"{ctx.prefix}sezon_reload"],
+                "note": "Przydatne, gdy bot nie zaktualizował tabeli automatycznie."
+            },
+            "sezon_repost": {
+                "desc": "Usuwa poprzednią wiadomość z rankingiem sezonowym i wysyła nową na sam dół dedykowanego kanału.",
+                "usage": "",
+                "admin": True,
+                "examples": [f"{ctx.prefix}sezon_repost"],
+                "note": "Przydatne w przypadku zapełnienia kanału innymi wiadomościami."
+            },
+            "sezon_set_mvp": {
+                "desc": "Ręcznie przypisuje lub koryguje zdobywcę tytułu MVP dla wskazanego archiwalnego sezonu (automatycznie aktualizuje Halę Sław).",
+                "usage": "<ID_sezonu/nazwa> <@gracz> [progres_elo]",
+                "admin": True,
+                "examples": [f"{ctx.prefix}sezon_set_mvp 1 @Gracz 280", f"{ctx.prefix}sezon_set_mvp Sezon_1 @Gracz 150"],
+                "note": "ID sezonu można sprawdzić komendą !sezony."
+            },
+            "live_setup": {
+                "desc": "Inicjalizuje i konfiguruje dedykowany kanał monitorowania meczów na żywo. Bot wyświetla na nim dashboard z aktualnym stanem rund i statystykami graczy.",
+                "usage": "[#kanał]",
+                "admin": True,
+                "examples": [f"{ctx.prefix}live_setup", f"{ctx.prefix}live_setup #mecze-live"],
+                "note": "Wpisane bez kanału używa bieżącego kanału tekstowego."
+            },
+            "live_reload": {
+                "desc": "Natychmiastowo wymusza odświeżenie dashboardu meczów na żywo na skonfigurowanym kanale live.",
+                "usage": "",
+                "admin": True,
+                "examples": [f"{ctx.prefix}live_reload"],
+                "note": "Wymaga wcześniejszego skonfigurowania kanału komendą !live_setup."
+            },
+            "live_repost": {
+                "desc": "Usuwa dotychczasowe wiadomości panelu live i generuje świeży dashboard na samym dole kanału.",
+                "usage": "",
+                "admin": True,
+                "examples": [f"{ctx.prefix}live_repost"],
+                "note": "Zalecane przy problemach z widocznością wiadomości dashboardu."
+            },
+            "rekordy_setup": {
+                "desc": "Tworzy dedykowany kanał Hali Sław (🏆・hala-sław) z osobnymi, estetycznymi kartami dla każdego rekordu serwera (Kills, HLTV, UD, Deaths, MVP).",
+                "usage": "",
+                "admin": True,
+                "examples": [f"{ctx.prefix}rekordy_setup"],
+                "note": "Karty rekordów są aktualizowane automatycznie po zakończeniu każdego meczu."
+            },
+            "rekordy_reload": {
+                "desc": "Wymusza natychmiastowe przeliczenie bazy i zaktualizowanie wszystkich kart rekordów na kanale Hali Sław.",
+                "usage": "",
+                "admin": True,
+                "examples": [f"{ctx.prefix}rekordy_reload"],
+                "note": "Synchronizuje rekordy ze stanem bazy danych."
+            }
         }
 
         name = target_command.name
-        desc = descriptions.get(name, target_command.help or "Brak szczegółowego opisu.")
-        usage = usage_map.get(name, "")
-        aliases = ", ".join([f"`{a}`" for a in target_command.aliases]) if target_command.aliases else "Brak"
+        info = meta_komend.get(name, {
+            "desc": target_command.help or "Brak szczegółowego opisu.",
+            "usage": "",
+            "admin": False,
+            "examples": [],
+            "note": None
+        })
 
+        aliases = ", ".join([f"`{a}`" for a in target_command.aliases]) if target_command.aliases else "Brak"
+        uprawnienia = "🛡️ Administrator" if info.get("admin") else "👥 Gracz (Wszyscy)"
+        
         embed = discord.Embed(
             title=f"📖 Komenda: {ctx.prefix}{name}",
-            description=desc,
+            description=info["desc"],
             color=get_cfg(guild_id, "main_color", 0x2b2d31)
         )
         
-        embed.add_field(name="💡 Użycie", value=f"`{ctx.prefix}{name} {usage}`", inline=False)
-        embed.add_field(name="🔗 Aliasy (skróty)", value=aliases, inline=False)
+        embed.add_field(name="💡 Składnia", value=f"`{ctx.prefix}{name} {info.get('usage', '')}`".strip(), inline=False)
+        embed.add_field(name="🔒 Uprawnienia", value=uprawnienia, inline=True)
+        embed.add_field(name="🔗 Aliasy (skróty)", value=aliases, inline=True)
         
-        if name == "recent":
-             embed.add_field(name="ℹ️ Info", value="Analizuje mecze zapisane w bazie danych (domyślnie 20, max 100). Możesz podać własną liczbę.", inline=False)
-        elif name == "compare":
-             embed.add_field(name="ℹ️ Info", value="Możesz spingować dwóch graczy lub wpisać ich nicki ręcznie.", inline=False)
-        elif name == "wykres":
-             embed.add_field(name="ℹ️ Info", value="Domyślnie analizuje 20 meczów. Możesz podać własną liczbę (od 2 do 100) oraz pingować użytkownika w dowolnej kolejności.", inline=False)
+        if info.get("examples"):
+            przykłady_txt = "\n".join([f"• `{ex}`" for ex in info["examples"]])
+            embed.add_field(name="🧪 Przykłady użycia", value=przykłady_txt, inline=False)
+            
+        if info.get("note"):
+            embed.add_field(name="ℹ️ Dodatkowe informacje", value=info["note"], inline=False)
 
-        embed.set_footer(text=f"Więcej pomocy pod {ctx.prefix}pomoc")
+        embed.set_footer(text=f"Więcej pomocy: {ctx.prefix}pomoc | {ctx.prefix}pomoc admin | {ctx.prefix}pomoc user")
         await ctx.send(embed=embed)
 
     @commands.command(name="wykres", aliases=["chart", "graph"])

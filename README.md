@@ -61,17 +61,47 @@ python3 main.py
 pm2 start main.py --name "cs2-bot" --interpreter ./venv/bin/python3
 ```
 
-## ⌨️ Komendy
+## ⌨️ Komendy Bota
 
-*   `!config` – Zaawansowane zarządzanie ustawieniami serwera.
-*   `!elo` – Szybki podgląd statystyk graczy z ekipy.
-*   `!top` – Wyświetla tabelę liderów obecnego sezonu.
-*   `!elo_setup` – Tworzy kanał głosowy ze średnim ELO ekipy.
-*   `!live_setup` – Konfiguruje kanał ze śledzeniem meczów na żywo.
-*   `!sezon [start/koniec]` – Zarządzanie sezonami rankingowymi.
-*   `!help` – Pełna lista dostępnych komend.
+Bot reaguje na ustawiony prefix serwerowy (domyślnie `!`) oraz na wzmiankę (ping `@Bot`).
 
-*Bot reaguje również na wzmiankę (ping) jako prefix.*
+### 👤 Komendy Gracza (Dostępne dla każdego)
+
+| Komenda | Aliasy | Składnia / Użycie | Opis |
+| :--- | :--- | :--- | :--- |
+| `!polacz` | `link`, `ln` | `!polacz <nick_faceit>` | Łączy konto Discord z profilem Faceit i dołącza do ekipy serwera. |
+| `!odlacz` | `unlink`, `un` | `!odlacz` | Usuwa powiązanie konta Faceit z kontem Discord. |
+| `!stats` | `statystyki`, `s`, `fs` | `!stats [nick / @gracz]` | Paszport statystyk gracza: ELO, poziom, K/D, ADR, HS%, Win Rate, streak. |
+| `!elo` | `e`, `fe` | `!elo [nick / @gracz]` | Szybki podgląd poziomu, ELO oraz paska postępu do awansu/spadku. |
+| `!last` | `mecz`, `l`, `fl` | `!last [nick / @gracz]` | Szczegółowa karta ostatniego meczu: HLTV 2.0, ADR, kille, UD, +/- ELO. |
+| `!recent` | `ostatnie`, `r`, `fr` | `!recent [ilość] [nick/@gracz]` | Średnie statystyki z ostatnich gier z bazy danych (domyślnie 20, max 100). |
+| `!wykres` | `chart`, `graph` | `!wykres [ilość] [nick/@gracz]` | Wykres liniowy trajektorii punktów ELO na osi ostatnich meczów (2-100). |
+| `!history` | `hist`, `historia` | `!history [nick / @gracz]` | Lista 5 ostatnich spotkań z wynikami, statystykami i linkami do Faceit. |
+| `!maps` | `mapy`, `m` | `!maps [nick / @gracz]` | Skuteczność na poszczególnych mapach 5v5 (liczba meczów, WR%, K/D). |
+| `!compare` | `porownaj`, `c`, `1v1`, `arena` | `!compare [ilość] <gracz1> <gracz2>` | Arena 1v1 — porównanie formy dwóch graczy ze wskazaniem lidera statystyk. |
+| `!top` | `leaderboard`, `ranking` | `!top` | Tabela liderów zarejestrowanych członków ekipy serwera posortowana wg ELO. |
+| `!streaks` | `passa`, `st` | `!streaks` | Zestawienie aktualnych serii zwycięstw / porażek (win/loss streak) ekipy. |
+| `!pomoc` | `komendy`, `help` | `!pomoc [komenda / admin / user]` | Interaktywne menu pomocy z przyciskami i dokumentacją. |
+
+---
+
+### 🛠️ Komendy Administratora (Wymagają uprawnień Admina)
+
+| Komenda | Aliasy | Składnia / Użycie | Opis |
+| :--- | :--- | :--- | :--- |
+| `!config` | `ustawienia`, `settings`, `cfg` | `!config [klucz] [wartość]` | Panel zarządzania bota per serwer (prefix, kanały powiadomień, kolory). |
+| `!tilt_config` | — | `!tilt_config` | Interaktywne menu progu alertów i roastów Tilt-Meter. |
+| `!elo_setup` | — | `!elo_setup` | Tworzy automatyczny kanał głosowy pokazujący średnie ELO ekipy na żywo. |
+| `!sezon` | — | `!sezon` | Panel zarządzania sezonami (Start nowego sezonu, Zakończenie z nagrodą MVP). |
+| `!sezony` | `sezon_lista`, `seasons` | `!sezony` | Lista zarejestrowanych sezonów z ich ID, statusem i zdobywcami MVP. |
+| `!sezon_reload`| `sr` | `!sezon_reload` | Wymusza natychmiastowe odświeżenie embeda z tabelą sezonu. |
+| `!sezon_repost`| `sezon_resend`, `srepost` | `!sezon_repost` | Przenosi tabelę sezonu na sam dół dedykowanego kanału. |
+| `!sezon_set_mvp` | `sezon_ustaw_mvp`, `set_season_mvp` | `!sezon_set_mvp <ID> <@gracz> [progres]` | Ręczne przypisanie/korekta MVP dla archiwalnego sezonu (aktualizuje Halę Sław). |
+| `!live_setup` | `ls`, `na_zywo_setup` | `!live_setup [#kanał]` | Konfiguruje kanał monitorowania meczów na żywo w czasie rzeczywistym. |
+| `!live_reload` | `lr` | `!live_reload` | Wymusza natychmiastowe odświeżenie dashboardu meczów live. |
+| `!live_repost` | — | `!live_repost` | Przenosi dashboard meczów live na sam dół kanału. |
+| `!rekordy_setup` | `records_setup` | `!rekordy_setup` | Tworzy kanał `🏆・hala-sław` z dedykowanymi kartami rekordów serwera. |
+| `!rekordy_reload`| `rr` | `!rekordy_reload` | Wymusza odświeżenie i przeliczenie wszystkich kart rekordów. |
 
 ## 📂 Struktura Projektu
 
