@@ -279,6 +279,14 @@ class TrackerCog(commands.Cog):
                     except Exception as e:
                         print(f"❌ Błąd wysyłania powiadomienia na kanał {kanal_id}: {e}")
 
+                    # Automatyczna aktualizacja roli Discord dla poziomu Faceit
+                    if obecny_level and stary_level and obecny_level != stary_level:
+                        roles_cog = self.bot.get_cog("FaceitRolesCog")
+                        if roles_cog:
+                            member = guild.get_member(int(d_id))
+                            if member:
+                                asyncio.create_task(roles_cog.update_member_faceit_role(guild, member, obecny_level))
+
                 # Zapis stanu i historii
                 mecze_baza[p_id] = {"match_id": aktualny_match_id, "elo": obecne_elo, "poziom": obecny_level}
                 

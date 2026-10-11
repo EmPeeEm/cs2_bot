@@ -3,6 +3,7 @@
 import discord
 from discord.ext import commands
 import typing
+import asyncio
 from utils.faceit_api import get_player_stats, is_uuid, get_player_id
 import config
 from utils.database import (
@@ -428,6 +429,13 @@ class CSCommands(commands.Cog):
                 
         await msg.edit(content=f"<@{discord_id}> pomyślnie powiązano z kontem **{faceit_nick}** na Faceit.")
 
+        # Automatyczne nadanie roli Faceit na Discordzie
+        roles_cog = self.bot.get_cog("FaceitRolesCog")
+        if roles_cog and ctx.guild:
+            target_member = ctx.guild.get_member(int(discord_id))
+            if target_member and test.get("poziom"):
+                asyncio.create_task(roles_cog.update_member_faceit_role(ctx.guild, target_member, test["poziom"]))
+
     @commands.hybrid_command(name="odlacz", aliases=["unlink", "un"], description="Odłącz konto Faceit od profilu Discord")
     async def odlacz_konto(self, ctx, gracz: typing.Optional[discord.Member] = None):
         guild_id = ctx.guild.id
@@ -443,6 +451,13 @@ class CSCommands(commands.Cog):
             usuniety = ekipa.pop(discord_id)
             zapisz_ekipe(guild_id, ekipa)
             await ctx.send(f"Odłączono powiązanie z profilu <@{discord_id}>.")
+
+            # Usunięcie ról Faceit z odłączonego profilu
+            roles_cog = self.bot.get_cog("FaceitRolesCog")
+            if roles_cog and ctx.guild:
+                target_member = ctx.guild.get_member(int(discord_id))
+                if target_member:
+                    asyncio.create_task(roles_cog.remove_all_faceit_roles(ctx.guild, target_member))
         else:
             await ctx.send(f"Ten profil nie ma obecnie podpiętego konta Faceit.")
 
@@ -949,6 +964,8 @@ class CSCommands(commands.Cog):
                     f"`{ctx.prefix}live_setup` • Konfiguracja dedykowanego kanału meczów live\n"
                     f"`{ctx.prefix}rekordy_setup` • Inicjalizacja kanału Hali Sław z rekordami\n"
                     f"`{ctx.prefix}elo_setup` • Utworzenie kanału głosowego ze średnim ELO\n"
+                    f"`{ctx.prefix}faceit_roles_setup` • Utworzenie/podpięcie ról Faceit Level 1-10\n"
+                    f"`{ctx.prefix}faceit_roles_sync` • Synchronizacja ról Faceit dla ekipy\n"
                     f"`{ctx.prefix}tilt_config` • Ustawienia czułości alertów Tilt-Meter"
                 ),
                 inline=False
@@ -1018,7 +1035,9 @@ class CSCommands(commands.Cog):
             value=(
                 f"• `{ctx.prefix}config` — Panel główny lub edycja `{ctx.prefix}config [klucz] [wartość]` (np. `prefix`, `kanal_eventow`, `main_color`).\n"
                 f"• `{ctx.prefix}tilt_config` — Menu wyboru progu alertów Tilt-Meter (serie porażek/zwycięstw).\n"
-                f"• `{ctx.prefix}elo_setup` — Tworzy automatyczny kanał głosowy ze średnim ELO ekipy."
+                f"• `{ctx.prefix}elo_setup` — Tworzy automatyczny kanał głosowy ze średnim ELO ekipy.\n"
+                f"• `{ctx.prefix}faceit_roles_setup` — Automatycznie tworzy 10 ról Faceit Level 1-10 z oficjalną paletą kolorów.\n"
+                f"• `{ctx.prefix}faceit_roles_sync` — Sprawdza i aktualizuje role Faceit Level wszystkim połączonym członkom ekipy."
             ),
             inline=False
         )
@@ -1212,6 +1231,20 @@ class CSCommands(commands.Cog):
                 "admin": True,
                 "examples": [f"{ctx.prefix}elo_setup"],
                 "note": "Wymaga uprawnień do zarządzania kanałami."
+            },
+            "faceit_roles_setup": {
+                "desc": "Automatycznie tworzy lub podłącza 10 ról Faceit Level 1-10 na serwerze Discord wraz z przypisaną oficjalną paletą kolorów.",
+                "usage": "",
+                "admin": True,
+                "examples": [f"{ctx.prefix}faceit_roles_setup"],
+                "note": "Upewnij się, że rola bota jest wyżej w hierarchii ról serwera niż role Faceit."
+            },
+            "faceit_roles_sync": {
+                "desc": "Weryfikuje aktualny poziom Faceit każdego połączonego gracza na serwerze i przypisuje mu odpowiednią rolę Faceit Level 1-10.",
+                "usage": "",
+                "admin": True,
+                "examples": [f"{ctx.prefix}faceit_roles_sync"],
+                "note": "Wykonuje zapytania z bezpiecznym opóźnieniem chroniącym przed rate limitami."
             },
             "sezon": {
                 "desc": "Główny panel zarządzania systemem sezonów rankingowych serwera. Pozwala rozpocząć nowy sezon, wyświetlić tabelę lub zamknąć sezon z nagrodą MVP.",

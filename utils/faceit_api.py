@@ -3,9 +3,11 @@
 import aiohttp
 import os
 import asyncio
+import logging
 from dotenv import load_dotenv
 
 load_dotenv()
+logger = logging.getLogger("FaceitAPI")
 FACEIT_KEY = os.getenv('FACEIT_API_KEY')
 BASE_URL = "https://open.faceit.com/data/v4"
 
@@ -54,17 +56,17 @@ async def get_faceit_data(endpoint: str, retries: int = 2):
                         if attempt < retries:
                             await asyncio.sleep(1.2 * (attempt + 1))
                             continue
-                        print(f"⚠️ Faceit API Error (Status 429 - Rate Limit) dla endpointu: {endpoint}")
+                        logger.warning(f"⚠️ Faceit API Error (Status 429 - Rate Limit) dla endpointu: {endpoint}")
                         return None
                     elif response.status == 404:
                         return None
-                    print(f"⚠️ Faceit API Error (Status {response.status}) dla endpointu: {endpoint}")
+                    logger.warning(f"⚠️ Faceit API Error (Status {response.status}) dla endpointu: {endpoint}")
                     return None
         except aiohttp.ClientError as e:
             if attempt < retries:
                 await asyncio.sleep(0.5)
                 continue
-            print(f"Faceit API Connection Error: {e}")
+            logger.warning(f"Faceit API Connection Error: {e}")
             return None
     return None
 
@@ -85,10 +87,10 @@ async def get_latest_match_id(player_id: str):
 try:
     from curl_cffi.requests import AsyncSession as CurlAsyncSession
     HAS_CURL_CFFI = True
-    print("✅ [FACEIT API] curl_cffi załadowane pomyślnie (ochrona Cloudflare aktywna)")
+    logger.info("✅ [FACEIT API] curl_cffi załadowane pomyślnie (ochrona Cloudflare aktywna)")
 except ImportError as e:
     HAS_CURL_CFFI = False
-    print(f"⚠️ [FACEIT API] Brak biblioteki curl_cffi ({e}) - zainstaluj 'pip install curl_cffi', aby ominąć blokadę Cloudflare (403) na VPS!")
+    logger.warning(f"⚠️ [FACEIT API] Brak biblioteki curl_cffi ({e}) - zainstaluj 'pip install curl_cffi', aby ominąć blokadę Cloudflare (403) na VPS!")
 
 async def get_player_ongoing_match_id(player_id: str):
     """Sprawdza czy gracz jest w aktywnym meczu (obsługuje endpointy Faceit groupByState oraz Open API)"""
@@ -115,12 +117,12 @@ async def get_player_ongoing_match_id(player_id: str):
                             if m_id:
                                 return m_id
                 elif resp.status_code != 404:
-                    print(f"⚠️ [LIVE API] groupByState status {resp.status_code} dla {player_id}")
+                    logger.debug(f"[LIVE API] groupByState status {resp.status_code} dla {player_id}")
         except Exception as e:
             # W razie błędu sesji curl_cffi resetujemy uchwyt
             global _curl_session
             _curl_session = None
-            print(f"⚠️ [LIVE API] Błąd curl_cffi dla {player_id}: {e}")
+            logger.debug(f"[LIVE API] Błąd curl_cffi dla {player_id}: {e}")
     else:
         # Fallback aiohttp
         session = await get_session()
@@ -149,9 +151,9 @@ async def get_player_ongoing_match_id(player_id: str):
                             if m_id:
                                 return m_id
                 elif resp.status != 404:
-                    print(f"⚠️ [LIVE API] groupByState status {resp.status} dla {player_id}")
+                    logger.debug(f"[LIVE API] groupByState status {resp.status} dla {player_id}")
         except Exception as e:
-            print(f"⚠️ [LIVE API] Błąd groupByState dla {player_id}: {e}")
+            logger.debug(f"[LIVE API] Błąd groupByState dla {player_id}: {e}")
 
     # 2. Fallback: Open Data API history
     try:
