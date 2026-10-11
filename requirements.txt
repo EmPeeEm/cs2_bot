@@ -5,3 +5,4 @@ demoparser2
 pandas
 matplotlib
 curl_cffi
+wavelink>=3.0.0

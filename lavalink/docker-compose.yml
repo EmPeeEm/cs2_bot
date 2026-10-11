@@ -1,0 +1,18 @@
+services:
+  lavalink:
+    image: ghcr.io/lavalink-devs/lavalink:4
+    container_name: lavalink
+    restart: unless-stopped
+    environment:
+      - _JAVA_OPTIONS=-Xmx1G
+    volumes:
+      - ./application.yml:/opt/Lavalink/application.yml
+      - ./plugins/:/opt/Lavalink/plugins/
+    networks:
+      - lavalink
+    ports:
+      - "2333:2333"
+
+networks:
+  lavalink:
+    name: lavalink

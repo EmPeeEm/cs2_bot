@@ -105,7 +105,35 @@ Bot reaguje na ustawiony prefix serwerowy (domyślnie `!`) oraz na wzmiankę (pi
 
 ## 📂 Struktura Projektu
 
-*   `cogs/` – Moduły bota (CS, Tracker, UI Sezonowe).
-*   `utils/` – Narzędzia pomocnicze (Faceit API, Baza SQLite).
+*   `cogs/` – Moduły bota (CS, Tracker, UI Sezonowe, Music).
+*   `lavalink/` – Konfiguracja serwera audio Lavalink v4 (Docker Compose, application.yml).
+*   `utils/` – Narzędzia pomocnicze (Faceit API, Baza SQLite, Widoki i kontrolki muzyczne).
 *   `data/` – Katalog na bazę danych `cs2_stats.db`.
-*   `config.py` – Globalne ustawienia tekstowe i wizualne.
+*   `config.py` – Globalne ustawienia tekstowe, wizualne i odtwarzacza.
+
+---
+
+### 🎵 Moduł Muzyczny (Lavalink v4 / Slash Commands)
+
+Bot posiada nowoczesny odtwarzacz muzyki oparty o Lavalink v4 z obsługą YouTube, Spotify i SoundCloud.
+
+#### Uruchomienie Lavalink (Docker):
+```bash
+cd lavalink
+docker compose up -d
+```
+
+#### Dostępne komendy muzyczne:
+* `/play <utwór / link>` (lub `!play`) – Odtwarza utwór z YouTube/Spotify z dynamicznym autocomplete.
+* `/pause` / `/resume` (lub `!pause` / `!resume`) – Wstrzymuje i wznawia odtwarzanie.
+* `/skip` (lub `!skip`, `!s`) – Pomija bieżący utwór.
+* `/stop` (lub `!stop`) – Zatrzymuje muzykę, czyści kolejkę i opuszcza kanał głosowy.
+* `/nowplaying` (lub `!np`) – Otwiera interaktywny panel kontrolera z przyciskami.
+* `/queue` (lub `!queue`, `!q`) – Wyświetla aktualną listę utworów w kolejce.
+* `/volume <1-100>` (lub `!vol`) – Reguluje poziom głośności odtwarzacza.
+* `/loop <off|track|queue>` – Zarządza zapętlaniem bieżącego utworu lub kolejki.
+* `/shuffle` – Miesza kolejność utworów w kolejce.
+* `/filter <bassboost|nightcore|8d|slowed|reset>` – Nakłada efekty audio w czasie rzeczywistym.
+* `/seek <MM:SS>` – Przewija utwór do określonego momentu.
+* `/clear` – Czyści listę oczekujących utworów.
+

@@ -434,3 +434,10 @@ RECORD_LOSSSTREAK_TIE_TEXTS = [
     "🤝 Solidarność w tiltowaniu! {gracz} wyrównuje anty-rekord z serią {wynik} porażek z rzędu!",
     "❄️ Ktoś tu potrzebuje przerwy! {gracz} wyrównał najgorszy loss-streak na serwerze: {wynik} przegranych pod rząd."
 ]
+
+# --- KONFIGURACJA MODUŁU MUZYCZNEGO ---
+MUSIC_DEFAULT_VOLUME = 70
+MUSIC_INACTIVITY_TIMEOUT = 180 # 3 minuty ciszy przed rozłączeniem
+MUSIC_EMPTY_CHANNEL_TIMEOUT = 60 # 1 minuta samotności na kanale przed wyjściem
+LAVALINK_URI = "http://127.0.0.1:2333"
+LAVALINK_PASSWORD = "youshallnotpass"
