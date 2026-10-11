@@ -42,8 +42,9 @@ class TiltUICog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @commands.command(name="tilt_config")
+    @commands.hybrid_command(name="tilt_config")
     @commands.has_permissions(administrator=True)
+    @discord.app_commands.default_permissions(administrator=True)
     async def tilt_config(self, ctx):
         guild_id = ctx.guild.id
         embed = discord.Embed(

@@ -81,11 +81,13 @@ class CSCommands(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @commands.command(name="stats", aliases=["statystyki", "s", "fs"])
-    async def sprawdz_elo(self, ctx, *args):
+    @commands.hybrid_command(name="stats", aliases=["statystyki", "s", "fs"], description="Paszport statystyk gracza Faceit")
+    async def sprawdz_elo(self, ctx, gracz: typing.Optional[str] = None):
+        await ctx.defer()
         guild_id = ctx.guild.id
+        args = (gracz,) if gracz else ()
         nickname, display_name = self.parse_identifier(ctx, args)
-        if not await self.check_nick(ctx, nickname, args[0] if args else None):
+        if not await self.check_nick(ctx, nickname, gracz):
             return
 
         msg = await ctx.send(f"Przeszukuję serwery Faceit dla **{display_name}**...")
@@ -134,11 +136,13 @@ class CSCommands(commands.Cog):
         # Edytujemy wiadomość ładowania, podmieniając ją na ładnego embeda
         await msg.edit(content=None, embed=embed)
 
-    @commands.command(name="last", aliases=["mecz", "l", "fl"])
-    async def ostatni_mecz(self, ctx, *args):
+    @commands.hybrid_command(name="last", aliases=["mecz", "l", "fl"], description="Szczegółowa karta ostatniego meczu")
+    async def ostatni_mecz(self, ctx, gracz: typing.Optional[str] = None):
+        await ctx.defer()
         guild_id = ctx.guild.id
+        args = (gracz,) if gracz else ()
         nickname, display_name = self.parse_identifier(ctx, args)
-        if not await self.check_nick(ctx, nickname, args[0] if args else None):
+        if not await self.check_nick(ctx, nickname, gracz):
             return
 
         msg = await ctx.send(f"Pobieram dane o ostatnim meczu dla **{display_name}**...")
@@ -215,8 +219,9 @@ class CSCommands(commands.Cog):
 
         await msg.edit(content=None, embed=embed)
 
-    @commands.command(name="top", aliases=["leaderboard", "ranking"])
+    @commands.hybrid_command(name="top", aliases=["leaderboard", "ranking"], description="Tabela liderów ekipy serwera posortowana wg ELO")
     async def tablica_wynikow(self, ctx):
+        await ctx.defer()
         guild_id = ctx.guild.id
         # Ta komenda musi sprawdzić kilka osób, więc zajmie botowi sekundę lub dwie
         msg = await ctx.send("Zbieram dane z serwerów Faceit... (to potrwa chwilę)")
@@ -296,9 +301,10 @@ class CSCommands(commands.Cog):
         # Edytujemy naszą wiadomość o ładowaniu na gotową tablicę
         await msg.edit(content=None, embed=embed)
 
-    @commands.command(name="streaks", aliases=["passa", "st"])
+    @commands.hybrid_command(name="streaks", aliases=["passa", "st"], description="Zestawienie aktualnych serii zwycięstw / porażek ekipy")
     async def zestawienie_passy(self, ctx):
         """Wyświetla aktualne serie zwycięstw/porażek dla całej ekipy."""
+        await ctx.defer()
         from utils.database import wczytaj_tilt
         guild_id = ctx.guild.id
         msg = await ctx.send("Sprawdzam, kto dzisiaj carruje, a kto sabotuje... 🔍")
@@ -357,35 +363,44 @@ class CSCommands(commands.Cog):
         
         await msg.edit(content=None, embed=embed)
 
-    @commands.command(name="polacz", aliases=["link", "ln"])
-    async def polacz_konto(self, ctx, *args):
+    @commands.hybrid_command(name="polacz", aliases=["link", "ln"], description="Połącz konto Discord z profilem Faceit")
+    async def polacz_konto(self, ctx, nick: str, gracz: typing.Optional[discord.Member] = None):
         guild_id = ctx.guild.id
-        if not args:
-            await ctx.send(f"Podaj nick Faceit! Użycie: `{ctx.prefix}polacz [nick]` lub `{ctx.prefix}polacz @Ktoś [nick]`.")
-            return
-
         discord_id = str(ctx.author.id)
-        faceit_nick = None
-        
-        # Sprawdzanie czy kogoś oznaczono
-        if ctx.message.mentions:
+        faceit_nick = nick
+
+        # Sprawdzanie czy kogoś oznaczono lub przekazano w parametrze
+        if gracz:
+            discord_id = str(gracz.id)
+        elif ctx.message and ctx.message.mentions:
             target = ctx.message.mentions[0]
             discord_id = str(target.id)
-            # Szukamy nicku Faceit, ignorując stringi będące wzmiankami <@id>
-            for arg in args:
-                if not arg.startswith("<@"):
-                    faceit_nick = arg
-        else:
-            faceit_nick = args[0]
-            
-        if not faceit_nick:
-            await ctx.send("Zabrakło nazwy gracza z Faceit!")
+            if nick.startswith("<@"):
+                parts = ctx.message.content.split()
+                for p in parts[1:]:
+                    if not p.startswith("<@"):
+                        faceit_nick = p
+                        break
+        elif nick.startswith("<@"):
+            user_id = nick.replace("<@", "").replace("!", "").replace(">", "")
+            if user_id.isdigit():
+                discord_id = user_id
+                if ctx.message:
+                    parts = ctx.message.content.split()
+                    for p in parts[1:]:
+                        if not p.startswith("<@"):
+                            faceit_nick = p
+                            break
+
+        if not faceit_nick or faceit_nick.startswith("<@"):
+            await ctx.send("Zabrakło nazwy gracza z Faceit! Użycie: `/polacz nick: [TwójNick]`.")
             return
 
         ekipa = wczytaj_ekipe(guild_id)
         
-        if discord_id in ekipa and not ctx.message.mentions:
-            await ctx.send(f"Masz już połączone konto. Użycie: `{ctx.prefix}polacz @Ktoś [nick]`.")
+        has_target = bool(gracz or (ctx.message and ctx.message.mentions))
+        if discord_id in ekipa and not has_target:
+            await ctx.send(f"Masz już połączone konto. Użycie dla innego użytkownika: `{ctx.prefix}polacz [nick] @Ktoś`.")
             return
 
         msg = await ctx.send(f"Łączę profil <@{discord_id}> z kontem Faceit: **{faceit_nick}**...")
@@ -413,30 +428,33 @@ class CSCommands(commands.Cog):
                 
         await msg.edit(content=f"<@{discord_id}> pomyślnie powiązano z kontem **{faceit_nick}** na Faceit.")
 
-    @commands.command(name="odlacz", aliases=["unlink", "un"])
-    async def odlacz_konto(self, ctx, *args):
+    @commands.hybrid_command(name="odlacz", aliases=["unlink", "un"], description="Odłącz konto Faceit od profilu Discord")
+    async def odlacz_konto(self, ctx, gracz: typing.Optional[discord.Member] = None):
         guild_id = ctx.guild.id
         ekipa = wczytaj_ekipe(guild_id)
         
         discord_id = str(ctx.author.id)
-        if ctx.message.mentions:
+        if gracz:
+            discord_id = str(gracz.id)
+        elif ctx.message and ctx.message.mentions:
             discord_id = str(ctx.message.mentions[0].id)
             
         if discord_id in ekipa:
-            usuniony = ekipa.pop(discord_id)
+            usuniety = ekipa.pop(discord_id)
             zapisz_ekipe(guild_id, ekipa)
-            await ctx.send(f"Odlączono powiązanie z profilu <@{discord_id}>.")
+            await ctx.send(f"Odłączono powiązanie z profilu <@{discord_id}>.")
         else:
             await ctx.send(f"Ten profil nie ma obecnie podpiętego konta Faceit.")
 
-    @commands.command(name="recent", aliases=["ostatnie", "r", "fr"])
-    async def komenda_stats(self, ctx, *args):
+    @commands.hybrid_command(name="recent", aliases=["ostatnie", "r", "fr"], description="Średnie statystyki z ostatnich gier z bazy danych")
+    async def komenda_stats(self, ctx, argument1: typing.Optional[str] = None, argument2: typing.Optional[str] = None):
+        await ctx.defer()
         guild_id = ctx.guild.id
         limit = 20
         
-        # Logika wyciągania limitu i nicku z args
+        raw_args = [a for a in [argument1, argument2] if a is not None]
         parsed_args = []
-        for arg in args:
+        for arg in raw_args:
             if arg.isdigit():
                 limit = int(arg)
             else:
@@ -569,11 +587,13 @@ class CSCommands(commands.Cog):
             await ctx.send(f"Podaj nick gracza albo połącz najpierw konto wpisując `{ctx.prefix}polacz [TwójNick]`.")
         return False
 
-    @commands.command(name="elo", aliases=["e", "fe"])
-    async def komenda_szybkie_elo(self, ctx, *args):
+    @commands.hybrid_command(name="elo", aliases=["e", "fe"], description="Szybki podgląd poziomu, ELO oraz paska postępu")
+    async def komenda_szybkie_elo(self, ctx, gracz: typing.Optional[str] = None):
+        await ctx.defer()
         guild_id = ctx.guild.id
+        args = (gracz,) if gracz else ()
         faceit_nick, display_name = self.parse_identifier(ctx, args)
-        if not await self.check_nick(ctx, faceit_nick, args[0] if args else None):
+        if not await self.check_nick(ctx, faceit_nick, gracz):
             return
             
         from utils.faceit_api import get_player_stats
@@ -618,11 +638,13 @@ class CSCommands(commands.Cog):
         embed.set_thumbnail(url=dane['avatar_url'])
         await msg.edit(content=None, embed=embed)
 
-    @commands.command(name="history", aliases=["hist", "historia"])
-    async def komenda_historia(self, ctx, *args):
+    @commands.hybrid_command(name="history", aliases=["hist", "historia"], description="Lista 5 ostatnich spotkań z wynikami i statystykami")
+    async def komenda_historia(self, ctx, gracz: typing.Optional[str] = None):
+        await ctx.defer()
         guild_id = ctx.guild.id
+        args = (gracz,) if gracz else ()
         faceit_nick, display_name = self.parse_identifier(ctx, args)
-        if not await self.check_nick(ctx, faceit_nick, args[0] if args else None):
+        if not await self.check_nick(ctx, faceit_nick, gracz):
             return
             
         from utils.faceit_api import get_multiple_matches_stats, get_player_stats
@@ -658,11 +680,13 @@ class CSCommands(commands.Cog):
         embed.set_thumbnail(url=gracz['avatar_url'])
         await msg.edit(content=None, embed=embed)
         
-    @commands.command(name="maps", aliases=["mapy", "m"])
-    async def komenda_mapy(self, ctx, *args):
+    @commands.hybrid_command(name="maps", aliases=["mapy", "m"], description="Skuteczność na poszczególnych mapach 5v5")
+    async def komenda_mapy(self, ctx, gracz: typing.Optional[str] = None):
+        await ctx.defer()
         guild_id = ctx.guild.id
+        args = (gracz,) if gracz else ()
         faceit_nick, display_name = self.parse_identifier(ctx, args)
-        if not await self.check_nick(ctx, faceit_nick, args[0] if args else None):
+        if not await self.check_nick(ctx, faceit_nick, gracz):
             return
             
         from utils.faceit_api import get_map_segments, get_player_stats
@@ -742,14 +766,17 @@ class CSCommands(commands.Cog):
         embed.set_footer(text="Legenda: 🟢 Pro | 🟡 Solidnie | 🔴 Słabo | K/R: Kills per Round")
         await msg.edit(content=None, embed=embed)
         
-    @commands.command(name="compare", aliases=["porownaj", "c", "1v1", "arena"])
-    async def komenda_compare(self, ctx, *args):
+    @commands.hybrid_command(name="compare", aliases=["porownaj", "c", "1v1", "arena"], description="Arena 1v1 — porównanie formy dwóch graczy")
+    async def komenda_compare(self, ctx, argument1: str, argument2: str, argument3: typing.Optional[str] = None):
+        await ctx.defer()
         guild_id = ctx.guild.id
         limit = 10
+        raw_args = [argument1, argument2]
+        if argument3 is not None:
+            raw_args.append(argument3)
+            
         targets = []
-        
-        # Logika parsująca args
-        for arg in args:
+        for arg in raw_args:
             if arg.isdigit():
                 limit = int(arg)
             else:
@@ -1030,9 +1057,10 @@ class CSCommands(commands.Cog):
         embed.set_footer(text=f"Szczegóły wybranej komendy: {ctx.prefix}pomoc [nazwa]")
         return embed
 
-    @commands.command(name="pomoc", aliases=["komendy", "help"])
-    async def komenda_pomoc(self, ctx, command_name: str = None):
+    @commands.hybrid_command(name="pomoc", aliases=["komendy", "help"], description="Interaktywne menu pomocy z dokumentacją komend")
+    async def komenda_pomoc(self, ctx, komenda: typing.Optional[str] = None):
         """Dynamiczny i kompletny system pomocy z podziałem na role."""
+        command_name = komenda
         guild_id = ctx.guild.id
         
         # 1. Sprawdzenie widoków kategorii
@@ -1289,12 +1317,14 @@ class CSCommands(commands.Cog):
         embed.set_footer(text=f"Więcej pomocy: {ctx.prefix}pomoc | {ctx.prefix}pomoc admin | {ctx.prefix}pomoc user")
         await ctx.send(embed=embed)
 
-    @commands.command(name="wykres", aliases=["chart", "graph"])
-    async def komenda_wykres(self, ctx, *args):
+    @commands.hybrid_command(name="wykres", aliases=["chart", "graph"], description="Wykres liniowy trajektorii punktów ELO")
+    async def komenda_wykres(self, ctx, argument1: typing.Optional[str] = None, argument2: typing.Optional[str] = None):
+        await ctx.defer()
         guild_id = ctx.guild.id
         limit = 20
+        raw_args = [a for a in [argument1, argument2] if a is not None]
         parsed_args = []
-        for arg in args:
+        for arg in raw_args:
             if arg.isdigit():
                 limit = int(arg)
             else:
@@ -1314,15 +1344,16 @@ class CSCommands(commands.Cog):
             await msg.edit(content=f"Nie znalazłem gracza: **{faceit_nick}**.")
             return
  
-        # 2. Pobieramy historię z bazy
-        historia = pobierz_historie_elo(p_id, limit=limit)
+        # 2. Pobieramy historię z bazy asynchronicznie
+        import asyncio
+        historia = await asyncio.to_thread(pobierz_historie_elo, p_id, limit=limit)
         
         if not historia or len(historia) < 2:
             await msg.edit(content=f"⚠️ Za mało danych w bazie, aby wygenerować wykres dla **{display_name}**. Muszę zarejestrować co najmniej 2 mecze (aktualnie w bazie: {len(historia) if historia else 0}).")
             return
  
-        # 3. Generujemy wykres
-        plik = generuj_wykres_elo(display_name, historia)
+        # 3. Generujemy wykres asynchronicznie
+        plik = await asyncio.to_thread(generuj_wykres_elo, display_name, historia)
         
         if not plik:
             await msg.edit(content="❌ Błąd podczas generowania wykresu.")

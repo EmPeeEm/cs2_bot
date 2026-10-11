@@ -541,8 +541,9 @@ class RecordsCog(commands.Cog):
             except Exception as e:
                 print(f"Błąd podczas edycji starej tablicy rekordów: {e}")
 
-    @commands.command(name="rekordy_setup", aliases=["records_setup"])
+    @commands.hybrid_command(name="rekordy_setup", aliases=["records_setup"])
     @commands.has_permissions(administrator=True)
+    @discord.app_commands.default_permissions(administrator=True)
     async def records_setup(self, ctx):
         """Konfiguruje dedykowany kanał z tablicą rekordów (każda kategoria w osobnej wiadomości)."""
         guild_id = ctx.guild.id
@@ -585,8 +586,9 @@ class RecordsCog(commands.Cog):
         except Exception as e:
             await msg.edit(content=f"❌ Błąd podczas konfiguracji: {e}")
 
-    @commands.command(name="rekordy_reload", aliases=["rr"])
+    @commands.hybrid_command(name="rekordy_reload", aliases=["rr"])
     @commands.has_permissions(administrator=True)
+    @discord.app_commands.default_permissions(administrator=True)
     async def records_reload(self, ctx):
         """Wymusza aktualizację tablicy rekordów na kanale."""
         guild_id = ctx.guild.id

@@ -7,8 +7,7 @@ import config
 
 DB_PATH = "data/cs2_stats.db"
 
-def get_connection():
-    return sqlite3.connect(DB_PATH)
+from utils.db_sqlite import get_connection
 
 def wczytaj_ekipe(guild_id):
     """Pobiera listę graczy (Discord ID -> Faceit ID) dla danej gildii."""

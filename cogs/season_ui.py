@@ -209,8 +209,9 @@ class SeasonUICog(commands.Cog):
             await msg.edit(embed=embed)
         except (discord.NotFound, discord.Forbidden, discord.HTTPException): pass
 
-    @commands.command(name="sezon")
+    @commands.hybrid_command(name="sezon")
     @commands.has_permissions(administrator=True)
+    @discord.app_commands.default_permissions(administrator=True)
     async def panel_sezon(self, ctx):
         guild_id = ctx.guild.id
         sezon_obecny = wczytaj_sezon(guild_id)
@@ -224,8 +225,9 @@ class SeasonUICog(commands.Cog):
         embed = await self._generate_leaderboard_embed(guild_id, nazwa, sezon_obecny.get('start_elo', {}))
         await ctx.send(embed=embed, view=SeasonView())
 
-    @commands.command(name="sezon_reload", aliases=["sr"])
+    @commands.hybrid_command(name="sezon_reload", aliases=["sr"])
     @commands.has_permissions(administrator=True)
+    @discord.app_commands.default_permissions(administrator=True)
     async def panel_sezon_reload(self, ctx):
         """Ręcznie wymusza aktualizację wiadomości z rankingiem sezonowym."""
         guild_id = ctx.guild.id
@@ -242,8 +244,9 @@ class SeasonUICog(commands.Cog):
         await self.update_live_leaderboard(guild_id)
         await msg.edit(content="✅ Ranking sezonowy został pomyślnie zaktualizowany!")
 
-    @commands.command(name="sezon_repost", aliases=["sezon_resend", "srepost"])
+    @commands.hybrid_command(name="sezon_repost", aliases=["sezon_resend", "srepost"])
     @commands.has_permissions(administrator=True)
+    @discord.app_commands.default_permissions(administrator=True)
     async def panel_sezon_repost(self, ctx):
         """Usuwa poprzednią wiadomość z rankingiem i wysyła nową na dedykowanym kanale."""
         guild_id = ctx.guild.id
@@ -278,8 +281,9 @@ class SeasonUICog(commands.Cog):
 
         await status_msg.edit(content="✅ Tabela sezonu została pomyślnie wysłana na nowo na dedykowanym kanale, a poprzednia usunięta!")
 
-    @commands.command(name="sezony", aliases=["sezon_lista", "seasons"])
+    @commands.hybrid_command(name="sezony", aliases=["sezon_lista", "seasons"])
     @commands.has_permissions(administrator=True)
+    @discord.app_commands.default_permissions(administrator=True)
     async def cmd_sezony_lista(self, ctx):
         """Wyświetla listę wszystkich sezonów w bazie danych."""
         guild_id = str(ctx.guild.id)
@@ -317,8 +321,9 @@ class SeasonUICog(commands.Cog):
         embed.set_footer(text=f"Aby przypisać MVP: {ctx.prefix}sezon_set_mvp <ID> @gracz <progres_elo>")
         await ctx.send(embed=embed)
 
-    @commands.command(name="sezon_set_mvp", aliases=["sezon_ustaw_mvp", "set_season_mvp"])
+    @commands.hybrid_command(name="sezon_set_mvp", aliases=["sezon_ustaw_mvp", "set_season_mvp"])
     @commands.has_permissions(administrator=True)
+    @discord.app_commands.default_permissions(administrator=True)
     async def cmd_sezon_set_mvp(self, ctx, id_lub_nazwa: str, member: discord.Member, progres_elo: int = 0):
         """Ręcznie przypisuje/poprawia MVP dla archiwalnego sezonu."""
         guild_id = str(ctx.guild.id)

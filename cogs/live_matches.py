@@ -7,6 +7,7 @@ import datetime
 import config
 from utils.database import wczytaj_ekipe, wczytaj_ustawienia, zapisz_ustawienia, get_cfg
 from utils.faceit_api import get_latest_match_id, get_player_ongoing_match_id, get_match_details, get_player_stats
+from utils.helpers import safe_rename_channel
 
 STATUS_LABELS = {
     "VOTING": "🟡 Faza Veto / Wybór mapy",
@@ -47,33 +48,7 @@ class LiveMatchesCog(commands.Cog):
 
     async def _safe_rename_channel(self, channel: discord.TextChannel, target_name: str):
         """Bezpiecznie zmienia nazwę kanału z uwzględnieniem limitu Discorda (max 2 na 10 min)."""
-        channel_id = channel.id
-        now = time.time()
-        
-        # Filtrujemy historię zmian z ostatnich 10 minut (600s)
-        history = self.channel_rename_history.get(channel_id, [])
-        history = [t for t in history if now - t < 610]
-        self.channel_rename_history[channel_id] = history
-
-        # Discord pozwala na maksymalnie 2 zmiany nazwy kanału na 10 minut
-        if len(history) >= 2:
-            return
-
-        if channel.name == target_name:
-            return
-
-        try:
-            await channel.edit(name=target_name)
-            self.channel_rename_history[channel_id].append(time.time())
-        except discord.Forbidden:
-            print(f"⚠️ [LIVE] Bot nie ma uprawnienia 'Zarządzanie kanałami' (Manage Channels) dla kanału {channel.id}")
-        except discord.HTTPException as e:
-            if e.status == 429:
-                print(f"ℹ️ [LIVE] Discord rate limit (429) przy zmianie nazwy kanału {channel.id} - zignorowano, kolejna próba po upływie limitu.")
-            else:
-                print(f"⚠️ [LIVE] Błąd zmiany nazwy kanału {channel.id}: {e}")
-        except Exception as e:
-            print(f"⚠️ [LIVE] Błąd zmiany nazwy kanału {channel.id}: {e}")
+        await safe_rename_channel(channel, target_name)
 
     async def _fetch_guild_active_matches(self, guild_id):
         """Skanuje ekipę z danej gildii i stabilnie śledzi trwające mecze."""
@@ -641,8 +616,9 @@ class LiveMatchesCog(commands.Cog):
     async def before_live_monitor(self):
         await self.bot.wait_until_ready()
 
-    @commands.command(name="live_setup", aliases=["ls", "na_zywo_setup"])
+    @commands.hybrid_command(name="live_setup", aliases=["ls", "na_zywo_setup"])
     @commands.has_permissions(administrator=True)
+    @discord.app_commands.default_permissions(administrator=True)
     async def cmd_live_setup(self, ctx, kanal: discord.TextChannel = None):
         """Konfiguruje dedykowany kanał do śledzenia meczów na żywo."""
         guild_id = ctx.guild.id
@@ -667,8 +643,9 @@ class LiveMatchesCog(commands.Cog):
         await self.update_live_dashboard(guild_id)
         await msg.edit(content=f"✅ Dashboard meczów na żywo został pomyślnie skonfigurowany na kanale {target_channel.mention}!")
 
-    @commands.command(name="live_reload", aliases=["lr"])
+    @commands.hybrid_command(name="live_reload", aliases=["lr"])
     @commands.has_permissions(administrator=True)
+    @discord.app_commands.default_permissions(administrator=True)
     async def cmd_live_reload(self, ctx):
         """Natychmiastowo odświeża dashboard meczów na żywo."""
         guild_id = ctx.guild.id
@@ -681,8 +658,9 @@ class LiveMatchesCog(commands.Cog):
         await self.update_live_dashboard(guild_id)
         await msg.edit(content="✅ Dashboard meczów na żywo został zaktualizowany!")
 
-    @commands.command(name="live_repost")
+    @commands.hybrid_command(name="live_repost")
     @commands.has_permissions(administrator=True)
+    @discord.app_commands.default_permissions(administrator=True)
     async def cmd_live_repost(self, ctx):
         """Usuwa poprzednie wiadomości dashboardu i wysyła nowe na sam dół kanału."""
         guild_id = ctx.guild.id

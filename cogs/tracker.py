@@ -11,6 +11,7 @@ from utils.database import (
     zapisz_historie_meczu
 )
 from utils.faceit_api import get_player_stats, get_last_match_stats, get_player_id, get_latest_match_id
+from utils.helpers import safe_rename_channel
 
 class TrackerCog(commands.Cog):
     def __init__(self, bot):
@@ -31,8 +32,9 @@ class TrackerCog(commands.Cog):
         except RuntimeError:
             pass
 
-    @commands.command(name="config", aliases=["ustawienia", "settings", "cfg"])
+    @commands.hybrid_command(name="config", aliases=["ustawienia", "settings", "cfg"])
     @commands.has_permissions(administrator=True)
+    @discord.app_commands.default_permissions(administrator=True)
     async def zarzadzaj_configiem(self, ctx, klucz: str = None, operacja: str = None, *, wartosc: str = None):
         """Zaawansowane zarządzanie konfiguracją bota per serwer."""
         guild_id = ctx.guild.id
@@ -99,8 +101,9 @@ class TrackerCog(commands.Cog):
         zapisz_ustawienia(guild_id, ustawienia)
         await ctx.send(f"✅ Zmieniono `{klucz}`: `{stara}` ➔ `{nowa_wartosc}`")
 
-    @commands.command(name="elo_setup")
+    @commands.hybrid_command(name="elo_setup")
     @commands.has_permissions(administrator=True)
+    @discord.app_commands.default_permissions(administrator=True)
     async def elo_setup(self, ctx):
         """Automatycznie tworzy kanał statystyk ze średnim ELO ekipy."""
         guild_id = ctx.guild.id
@@ -345,8 +348,9 @@ class TrackerCog(commands.Cog):
                     ust["ostatni_tydzien_resetu"] = aktualny_tydzien
                     await asyncio.to_thread(zapisz_ustawienia, guild_id, ust)
                 diff = round(curr_avg - last_avg, 1)
-                new_name = f"Średnie ELO: {curr_avg}{f' ({"+" if diff > 0 else ""}{diff})' if diff != 0 else ''}"
-                if k.name != new_name: await k.edit(name=new_name)
+                diff_str = f" ({'+' if diff > 0 else ''}{diff})" if diff != 0 else ""
+                new_name = f"Średnie ELO: {curr_avg}{diff_str}"
+                await safe_rename_channel(k, new_name)
             except (discord.Forbidden, discord.NotFound, discord.HTTPException):
                 continue
 

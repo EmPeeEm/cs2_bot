@@ -11,7 +11,9 @@ DB_PATH = "data/cs2_stats.db"
 def init_db():
     """Inicjalizuje bazę danych z obsługą wielu serwerów i optymalizacjami."""
     os.makedirs("data", exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=15.0)
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA synchronous=NORMAL;")
     cursor = conn.cursor()
 
     # 1. Tabela graczy na serwerach
@@ -129,13 +131,17 @@ def init_db():
     logger.info("Baza danych zoptymalizowana i gotowa.")
 
 def get_connection():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=15.0)
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA synchronous=NORMAL;")
     conn.row_factory = sqlite3.Row
     return conn
 
 # Funkcja do migracji (dodawania kolumn do istniejącej bazy)
 def migrate_schema():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=15.0)
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA synchronous=NORMAL;")
     cursor = conn.cursor()
     
     # Utworzenie unikalnego indeksu chroniącego przed duplikatami
