@@ -1,7 +1,5 @@
 discord.py
 python-dotenv
 aiohttp
-demoparser2
-pandas
 matplotlib
 curl_cffi

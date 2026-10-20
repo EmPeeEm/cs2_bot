@@ -34,17 +34,17 @@ async def safe_rename_channel(channel: discord.abc.GuildChannel, target_name: st
     try:
         await channel.edit(name=target_name)
         _channel_rename_history[channel_id].append(time.time())
-        logger.info(f"✅ Zmieniono nazwę kanału {channel_id} na: '{target_name}'")
+        logger.info(f"Zmieniono nazwę kanału {channel_id} na: '{target_name}'")
         return True
     except discord.Forbidden:
-        logger.warning(f"⚠️ Bot nie posiada uprawnienia 'Manage Channels' (Zarządzanie kanałami) dla kanału {channel_id}")
+        logger.warning(f"Brak uprawnienia 'Manage Channels' dla kanału {channel_id}")
         return False
     except discord.HTTPException as e:
         if e.status == 429:
-            logger.info(f"ℹ️ Rate limit Discorda (429) przy edycji nazwy kanału {channel_id} - zmiana odłożona w czasie.")
+            logger.info(f"Rate limit Discorda (429) przy edycji nazwy kanału {channel_id} - zmiana odłożona.")
         else:
-            logger.warning(f"⚠️ Błąd HTTP przy zmianie nazwy kanału {channel_id}: {e}")
+            logger.warning(f"Błąd HTTP przy zmianie nazwy kanału {channel_id}: {e}")
         return False
     except Exception as e:
-        logger.error(f"❌ Nieoczekiwany błąd przy zmianie nazwy kanału {channel_id}: {e}")
+        logger.error(f"Nieoczekiwany błąd przy zmianie nazwy kanału {channel_id}: {e}")
         return False

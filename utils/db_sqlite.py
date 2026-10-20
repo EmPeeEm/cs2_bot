@@ -4,6 +4,7 @@ import os
 import json
 import logging
 from datetime import datetime
+from contextlib import contextmanager
 
 logger = logging.getLogger(__name__)
 DB_PATH = "data/cs2_stats.db"
@@ -130,12 +131,20 @@ def init_db():
     migrate_schema()
     logger.info("Baza danych zoptymalizowana i gotowa.")
 
+@contextmanager
 def get_connection():
     conn = sqlite3.connect(DB_PATH, timeout=15.0)
     conn.execute("PRAGMA journal_mode=WAL;")
     conn.execute("PRAGMA synchronous=NORMAL;")
     conn.row_factory = sqlite3.Row
-    return conn
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 # Funkcja do migracji (dodawania kolumn do istniejącej bazy)
 def migrate_schema():
@@ -176,7 +185,7 @@ def migrate_schema():
     for table, col, definition in updates:
         try:
             cursor.execute(f"ALTER TABLE {table} ADD COLUMN {col} {definition}")
-            print(f"✅ Dodano kolumnę {col} do tabeli {table}")
+            logger.info(f"Dodano kolumnę {col} do tabeli {table}")
         except sqlite3.OperationalError:
             # Kolumna już istnieje
             pass
@@ -193,7 +202,7 @@ def migrate_schema():
                 dt = datetime.strptime(dt_str, '%Y-%m-%d %H:%M:%S')
                 unix_ts = int(dt.timestamp())
                 cursor.execute("UPDATE matches SET match_date = ? WHERE match_id = ?", (unix_ts, m_id))
-                print(f"🔧 Naprawiono tekstową datę meczu: {m_id}")
+                logger.info(f"Naprawiono tekstową datę meczu: {m_id}")
         except Exception as e:
             logger.error(f"Nie udało się naprawić daty dla {m_id}: {e}")
 
@@ -232,7 +241,7 @@ def migrate_legacy_seasons(cursor):
                 if isinstance(arch_parsed, dict) and 'wyniki' in arch_parsed and arch_parsed['wyniki']:
                     wyniki = arch_parsed['wyniki']
                     cursor.execute('UPDATE seasons SET archive_data = ? WHERE id = ?', (json.dumps(wyniki), s_id))
-                    print(f"🔧 [MIGRACJA] Znormalizowano stary format archive_data dla sezonu '{name}' (ID: {s_id})")
+                    logger.info(f"[MIGRACJA] Znormalizowano stary format archive_data dla sezonu '{name}' (ID: {s_id})")
                     continue
             except Exception:
                 pass
@@ -274,7 +283,7 @@ def migrate_legacy_seasons(cursor):
                             })
                         reconstructed.sort(key=lambda x: x['progres'], reverse=True)
                         cursor.execute('UPDATE seasons SET archive_data = ? WHERE id = ?', (json.dumps(reconstructed), s_id))
-                        print(f"🔧 [MIGRACJA] Zrekonstruowano brakujące archive_data dla sezonu '{name}' (ID: {s_id})")
+                        logger.info(f"[MIGRACJA] Zrekonstruowano brakujące archive_data dla sezonu '{name}' (ID: {s_id})")
             except Exception as e:
                 logger.error(f"Błąd podczas rekonstrukcji sezonu {s_id}: {e}")
 

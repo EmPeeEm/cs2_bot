@@ -25,11 +25,24 @@ def zapisz_ekipe(guild_id, ekipa):
             cursor.execute('INSERT INTO guild_players (guild_id, discord_id, player_id) VALUES (?, ?, ?)', (str(guild_id), d_id, p_id))
         conn.commit()
 
-def wczytaj_ustawienia(guild_id):
-    """Pobiera ustawienia serwera."""
+_settings_cache = {}
+
+def uniewaznij_cache_ustawien(guild_id=None):
+    """Czyści pamięć podręczną ustawień dla gildii lub całościowo."""
+    if guild_id:
+        _settings_cache.pop(str(guild_id), None)
+    else:
+        _settings_cache.clear()
+
+def wczytaj_ustawienia(guild_id, use_cache=True):
+    """Pobiera ustawienia serwera (z pamięci podręcznej lub bazy)."""
+    gid = str(guild_id) if guild_id else None
+    if use_cache and gid and gid in _settings_cache:
+        return _settings_cache[gid].copy()
+
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute('SELECT key, value FROM settings WHERE guild_id = ?', (str(guild_id),))
+        cursor.execute('SELECT key, value FROM settings WHERE guild_id = ?', (gid,))
         rows = cursor.fetchall()
         ustawienia = {}
         for k, v in rows:
@@ -37,18 +50,23 @@ def wczytaj_ustawienia(guild_id):
                 ustawienia[k] = json.loads(v)
             except Exception:
                 ustawienia[k] = v
+        if gid:
+            _settings_cache[gid] = ustawienia.copy()
         return ustawienia
 
 def zapisz_ustawienia(guild_id, dane):
-    """Zapisuje ustawienia serwera."""
+    """Zapisuje ustawienia serwera i aktualizuje pamięć podręczną."""
+    gid = str(guild_id) if guild_id else None
     with get_connection() as conn:
         cursor = conn.cursor()
         for k, v in dane.items():
             cursor.execute('''
                 INSERT OR REPLACE INTO settings (guild_id, key, value) 
                 VALUES (?, ?, ?)
-            ''', (str(guild_id), k, json.dumps(v)))
+            ''', (gid, k, json.dumps(v)))
         conn.commit()
+    if gid:
+        _settings_cache[gid] = dane.copy()
 
 def get_cfg(guild_id, klucz, domyslna=None):
     """Pobiera ustawienie per serwer, lub globalne z config.py."""
