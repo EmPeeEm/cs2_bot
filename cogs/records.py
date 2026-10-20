@@ -5,8 +5,12 @@ import sqlite3
 import random
 import datetime
 import json
+import logging
 from utils.database import wczytaj_ustawienia, zapisz_ustawienia, get_cfg, DB_PATH
+from utils.db_sqlite import get_connection
 import config
+
+logger = logging.getLogger("Records")
 
 CATEGORIES = {
     "max_kills": {
@@ -123,13 +127,13 @@ def get_extreme_value(guild_id, category):
     """
     
     try:
-        with sqlite3.connect(DB_PATH) as conn:
+        with get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(query, (str(guild_id),))
             row = cursor.fetchone()
             return row[0] if row and row[0] is not None else None
     except Exception as e:
-        print(f"Error getting extreme value for {category}: {e}")
+        logger.error(f"Error getting extreme value for {category}: {e}")
         return None
 
 def get_extreme_value_excluding(guild_id, category, current_match_id):
@@ -149,13 +153,13 @@ def get_extreme_value_excluding(guild_id, category, current_match_id):
     """
     
     try:
-        with sqlite3.connect(DB_PATH) as conn:
+        with get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(query, (str(guild_id), str(current_match_id)))
             row = cursor.fetchone()
             return row[0] if row and row[0] is not None else None
     except Exception as e:
-        print(f"Error getting extreme value excluding match {current_match_id}: {e}")
+        logger.error(f"Error getting extreme value excluding match {current_match_id}: {e}")
         return None
 
 def get_record_holders(guild_id, category, value):
@@ -177,7 +181,7 @@ def get_record_holders(guild_id, category, value):
     """
     
     try:
-        with sqlite3.connect(DB_PATH) as conn:
+        with get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(query, (str(guild_id), value))
             rows = cursor.fetchall()
@@ -193,7 +197,7 @@ def get_record_holders(guild_id, category, value):
                 for row in rows
             ]
     except Exception as e:
-        print(f"Error getting record holders: {e}")
+        logger.error(f"Error getting record holders: {e}")
         return []
 
 def get_streak_records(guild_id, exclude_match_id=None):
@@ -209,7 +213,7 @@ def get_streak_records(guild_id, exclude_match_id=None):
         ORDER BY gp.player_id, m.match_date ASC
     """
     try:
-        with sqlite3.connect(DB_PATH) as conn:
+        with get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(query, (str(guild_id),))
             rows = cursor.fetchall()
@@ -290,7 +294,7 @@ def get_streak_records(guild_id, exclude_match_id=None):
             "max_lossstreak": (global_max_l if global_max_l > 0 else None, l_holders)
         }
     except Exception as e:
-        print(f"Error calculating streak records: {e}")
+        logger.error(f"Błąd podczas obliczania rekordów passy: {e}")
         return {
             "max_winstreak": (None, []),
             "max_lossstreak": (None, [])
@@ -312,7 +316,7 @@ def get_season_mvps(guild_id):
         ORDER BY id ASC
     """
     try:
-        with sqlite3.connect(DB_PATH) as conn:
+        with get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(query, (str(guild_id),))
             rows = cursor.fetchall()
@@ -341,15 +345,20 @@ def get_season_mvps(guild_id):
                             "obecne": mvp.get("obecne", 0)
                         })
                 except Exception as e:
-                    print(f"Error parsing season archive {s_id}: {e}")
+                    logger.error(f"Error parsing season archive {s_id}: {e}")
         return seasons_list
     except Exception as e:
-        print(f"Error getting season mvps: {e}")
+        logger.error(f"Error getting season mvps: {e}")
         return []
 
 class RecordsCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+
+    async def cog_check(self, ctx: commands.Context) -> bool:
+        if not ctx.guild:
+            raise commands.NoPrivateMessage("Ta komenda może być używana tylko na serwerze.")
+        return True
 
     def generate_category_embed(self, guild_id, category):
         cat_info = CATEGORIES[category]
@@ -528,7 +537,7 @@ class RecordsCog(commands.Cog):
                     new_msg = await channel.send(embed=embed)
                     updated_ids[category] = new_msg.id
                 except Exception as e:
-                    print(f"Błąd wysyłania nowej karty dla kategorii {category}: {e}")
+                    logger.error(f"Błąd wysyłania nowej karty dla kategorii {category}: {e}")
                     
             if updated_ids != msg_ids:
                 ustawienia["rekordy_msg_ids"] = updated_ids
@@ -539,13 +548,14 @@ class RecordsCog(commands.Cog):
                 msg = await channel.fetch_message(int(msg_id_old))
                 await msg.edit(embed=embed)
             except Exception as e:
-                print(f"Błąd podczas edycji starej tablicy rekordów: {e}")
+                logger.error(f"Błąd podczas edycji starej tablicy rekordów: {e}")
 
-    @commands.hybrid_command(name="rekordy_setup", aliases=["records_setup"])
+    @commands.hybrid_command(name="rekordy_setup", aliases=["records_setup"], description="Konfiguruje kanał Hali Sław z kartami rekordów")
     @commands.has_permissions(administrator=True)
     @discord.app_commands.default_permissions(administrator=True)
     async def records_setup(self, ctx):
-        """Konfiguruje dedykowany kanał z tablicą rekordów (każda kategoria w osobnej wiadomości)."""
+        """Tworzy kanał z tablicą rekordów serwera."""
+        await ctx.defer()
         guild_id = ctx.guild.id
         ustawienia = wczytaj_ustawienia(guild_id)
         
@@ -584,13 +594,15 @@ class RecordsCog(commands.Cog):
             
             await msg.edit(content=f"✅ Stworzono kanał {new_channel.mention} z dedykowanymi wiadomościami dla każdego rekordu!")
         except Exception as e:
+            logger.error(f"Błąd podczas konfiguracji rekordów: {e}", exc_info=True)
             await msg.edit(content=f"❌ Błąd podczas konfiguracji: {e}")
 
-    @commands.hybrid_command(name="rekordy_reload", aliases=["rr"])
+    @commands.hybrid_command(name="rekordy_reload", aliases=["rr"], description="Odświeża tablicę rekordów na kanale")
     @commands.has_permissions(administrator=True)
     @discord.app_commands.default_permissions(administrator=True)
     async def records_reload(self, ctx):
-        """Wymusza aktualizację tablicy rekordów na kanale."""
+        """Odświeża tablicę rekordów na kanale."""
+        await ctx.defer()
         guild_id = ctx.guild.id
         msg = await ctx.send("⏳ Aktualizowanie tablicy rekordów...")
         await self.update_records_board(guild_id)
@@ -767,7 +779,7 @@ class RecordsCog(commands.Cog):
                         try:
                             await channel.send(content=ann)
                         except Exception as e:
-                            print(f"Nie udało się wysłać powiadomienia o rekordzie: {e}")
+                            logger.error(f"Nie udało się wysłać powiadomienia o rekordzie: {e}")
 
 async def setup(bot):
     await bot.add_cog(RecordsCog(bot))

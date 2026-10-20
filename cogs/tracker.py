@@ -4,6 +4,7 @@ import config
 import random
 import datetime
 import asyncio
+import logging
 from utils.database import (
     wczytaj_ekipe, wczytaj_ustawienia, zapisz_ustawienia,
     wczytaj_ostatnie_mecze, zapisz_ostatnie_mecze,
@@ -12,6 +13,8 @@ from utils.database import (
 )
 from utils.faceit_api import get_player_stats, get_last_match_stats, get_player_id, get_latest_match_id
 from utils.helpers import safe_rename_channel
+
+logger = logging.getLogger("Tracker")
 
 class TrackerCog(commands.Cog):
     def __init__(self, bot):
@@ -32,18 +35,24 @@ class TrackerCog(commands.Cog):
         except RuntimeError:
             pass
 
-    @commands.hybrid_command(name="config", aliases=["ustawienia", "settings", "cfg"])
+    async def cog_check(self, ctx: commands.Context) -> bool:
+        if not ctx.guild:
+            raise commands.NoPrivateMessage("Ta komenda może być używana tylko na serwerze.")
+        return True
+
+    @commands.hybrid_command(name="config", aliases=["ustawienia", "settings", "cfg"], description="Ustawienia bota na serwerze (prefix, kanały, kolory)")
     @commands.has_permissions(administrator=True)
     @discord.app_commands.default_permissions(administrator=True)
     async def zarzadzaj_configiem(self, ctx, klucz: str = None, operacja: str = None, *, wartosc: str = None):
-        """Zaawansowane zarządzanie konfiguracją bota per serwer."""
+        """Konfiguracja ustawień bota na serwerze."""
+        await ctx.defer()
         guild_id = ctx.guild.id
         ustawienia = wczytaj_ustawienia(guild_id)
         
         # 1. Podgląd ogólny
         if not klucz:
             embed = discord.Embed(
-                title="⚙️ Konfiguracja Systemu",
+                title="⚙️ Ustawienia bota",
                 description=f"Użyj: `{ctx.prefix}config [klucz] [wartość]`\n\n"
                             "**Klucze:** `prefix`, `tilt_limit`, `main_color`, `kanal_eventow`, `kanal_sezonu`, `kanal_podsumowan_elo`, `kanal_live`\n"
                             "**Klucze wizualne:** `level_emojis`, `level_default`\n\n"
@@ -101,11 +110,12 @@ class TrackerCog(commands.Cog):
         zapisz_ustawienia(guild_id, ustawienia)
         await ctx.send(f"✅ Zmieniono `{klucz}`: `{stara}` ➔ `{nowa_wartosc}`")
 
-    @commands.hybrid_command(name="elo_setup")
+    @commands.hybrid_command(name="elo_setup", description="Tworzy kanał głosowy ze średnim ELO ekipy")
     @commands.has_permissions(administrator=True)
     @discord.app_commands.default_permissions(administrator=True)
     async def elo_setup(self, ctx):
-        """Automatycznie tworzy kanał statystyk ze średnim ELO ekipy."""
+        """Tworzy kanał głosowy ze średnim ELO ekipy."""
+        await ctx.defer()
         guild_id = ctx.guild.id
         ustawienia = wczytaj_ustawienia(guild_id)
         ekipa = wczytaj_ekipe(guild_id)
@@ -114,10 +124,12 @@ class TrackerCog(commands.Cog):
             return await ctx.send("❌ Twoja ekipa jest pusta!")
 
         msg = await ctx.send("⏳ Obliczam średnie ELO i przygotowuję kanał...")
+        tasks = [get_player_stats(p_id, lifetime=False) for p_id in ekipa.values()]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
         total_elo, count = 0, 0
-        for p_id in ekipa.values():
-            gracz = await get_player_stats(p_id)
-            if gracz and gracz != "error" and gracz.get("elo"):
+        for gracz in results:
+            if isinstance(gracz, dict) and gracz.get("elo"):
                 total_elo += int(gracz["elo"])
                 count += 1
         
@@ -134,6 +146,7 @@ class TrackerCog(commands.Cog):
             zapisz_ustawienia(guild_id, ustawienia)
             await msg.edit(content=f"✅ Stworzono kanał: {new_channel.mention}")
         except Exception as e:
+            logger.error(f"Błąd podczas tworzenia kanału ELO: {e}", exc_info=True)
             await msg.edit(content=f"❌ Błąd: {e}")
 
     @tasks.loop(minutes=0.5)
@@ -166,7 +179,7 @@ class TrackerCog(commands.Cog):
 
         for res in results:
             if isinstance(res, Exception):
-                print(f"❌ Faceit API/Match Check Exception: {res}")
+                logger.error(f"Faceit API/Match Check Exception: {res}")
                 continue
             if not res or not res["mecz"] or not res["gracz"]: continue
             gracz, mecz = res["gracz"], res["mecz"]
@@ -192,7 +205,7 @@ class TrackerCog(commands.Cog):
                             "retry_count": retry_count + 1
                         }
                         zmieniono_baze = True
-                        print(f"⏳ Czekam na aktualizację ELO dla {gracz['nick']} (Mecz: {aktualny_match_id}, Próba: {retry_count + 1}/3)")
+                        logger.info(f"Oczekiwanie na aktualizację ELO dla {gracz['nick']} (mecz: {aktualny_match_id}, próba: {retry_count + 1}/3)")
                         continue
 
                 # Zapisujemy status meczu i liczymy różnicę ELO
@@ -218,7 +231,7 @@ class TrackerCog(commands.Cog):
                     try:
                         kanal = self.bot.get_channel(int(kanal_id)) or await self.bot.fetch_channel(int(kanal_id))
                     except Exception as e:
-                        print(f"❌ Błąd pobierania kanału {kanal_id} w gildii {g_id}: {e}")
+                        logger.warning(f"Błąd pobierania kanału {kanal_id} w gildii {g_id}: {e}")
                         continue
 
                     if not kanal: continue
@@ -260,7 +273,7 @@ class TrackerCog(commands.Cog):
 
                     embed = discord.Embed(
                         title=f"{'WYGRANA' if win else 'PRZEGRANA'}: Mecz na {mecz['mapa']} ({mecz['wynik']})",
-                        description=f"{lvl_e} **{gracz['nick']}** | **{ocena}** (HLTV: **{hltv:.2f}**)\nBieżące punkty: {elo_tekst}",
+                        description=f"{lvl_e} **{gracz['nick']}** | **{ocena}** (HLTV: **{hltv:.2f}**)\nBieżące ELO: {elo_tekst}",
                         color=0x00FF00 if win else 0xFF0000
                     )
                     mk = []
@@ -268,16 +281,17 @@ class TrackerCog(commands.Cog):
                     if mecz.get('quadro_kills', 0) > 0: mk.append(f"4k: **{mecz['quadro_kills']}**")
                     if mecz.get('penta_kills', 0) > 0: mk.append(f"**ACE**")
                     
-                    embed.add_field(name="Rezultaty Strzeleckie", value=f"K/D/A: **{int(mecz['kille'])}/{int(mecz['dedy'])}/{int(mecz['asysty'])}**\nK/D Ratio: **{mecz['kd']}**\nEntry: **{int(mecz.get('entry_wins',0))}** ({int(mecz.get('entry_success',0))}%)\nADR: **{mecz['adr']}**{f'\nMulti: {", ".join(mk)}' if mk else ''}", inline=True)
+                    multi_info = f"\nMulti: {', '.join(mk)}" if mk else ""
+                    embed.add_field(name="Statystyki strzeleckie", value=f"K/D/A: **{int(mecz['kille'])}/{int(mecz['dedy'])}/{int(mecz['asysty'])}**\nK/D Ratio: **{mecz['kd']}**\nEntry: **{int(mecz.get('entry_wins',0))}** ({int(mecz.get('entry_success',0))}%)\nADR: **{mecz['adr']}**{multi_info}", inline=True)
                     extra = f"\nSnajper: **{mecz['sniper_kills']}** killi" if mecz.get('sniper_kills', 0) >= 5 else (f"\nFlash: **{int(mecz.get('flash_success',0))}%**" if int(mecz.get('flash_success',0)) > 60 else "")
-                    embed.add_field(name="Utility i Zgranie", value=f"Headshoty: **{int(mecz['hs_procent'])}%**\nClutche: **{int(mecz.get('clutch_1v1',0)+mecz.get('clutch_1v2',0))}**\nUtility Dmg: **{int(mecz.get('ud', 0))}**\nMVPs: **{int(mecz['mvp'])}**{extra}", inline=True)
+                    embed.add_field(name="Granaty i Clutche", value=f"Headshoty: **{int(mecz['hs_procent'])}%**\nClutche: **{int(mecz.get('clutch_1v1',0)+mecz.get('clutch_1v2',0))}**\nUtility Dmg: **{int(mecz.get('ud', 0))}**\nMVPs: **{int(mecz['mvp'])}**{extra}", inline=True)
                     embed.set_thumbnail(url=gracz['avatar_url'])
                     try:
                         await kanal.send(embed=embed)
                         if alert_msg: await kanal.send(content=alert_msg)
-                        print(f"✅ Wysłano powiadomienie o meczu {aktualny_match_id} dla {gracz['nick']} na kanał {kanal_id}")
+                        logger.info(f"Wysłano powiadomienie o meczu {aktualny_match_id} dla {gracz['nick']} na kanał {kanal_id}")
                     except Exception as e:
-                        print(f"❌ Błąd wysyłania powiadomienia na kanał {kanal_id}: {e}")
+                        logger.error(f"Błąd wysyłania powiadomienia na kanał {kanal_id}: {e}")
 
                     # Automatyczna aktualizacja roli Discord dla poziomu Faceit
                     if obecny_level and stary_level and obecny_level != stary_level:
@@ -294,7 +308,7 @@ class TrackerCog(commands.Cog):
                 try:
                     await asyncio.to_thread(zapisz_historie_meczu, aktualny_match_id, p_id, mecz, obecne_elo, win, elo_gain, mecz.get('finished_at'))
                 except Exception as e:
-                    print(f"❌ Błąd zapisu historii meczu: {e}")
+                    logger.error(f"Błąd zapisu historii meczu: {e}")
                 
                 # Sprawdzenie rekordów (Hala Sław / Wstydu)
                 records_cog = self.bot.get_cog("RecordsCog")
@@ -303,7 +317,7 @@ class TrackerCog(commands.Cog):
                         try:
                             await records_cog.check_and_announce(g_id, d_id, p_id, aktualny_match_id, mecz, win)
                         except Exception as e:
-                            print(f"❌ Błąd sprawdzania rekordów dla {p_id} w gildii {g_id}: {e}")
+                            logger.error(f"Błąd sprawdzania rekordów dla {p_id} w gildii {g_id}: {e}")
 
                 zmieniono_baze = True
                 

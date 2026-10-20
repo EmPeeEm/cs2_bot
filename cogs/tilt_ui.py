@@ -12,11 +12,15 @@ class TiltSelect(discord.ui.Select):
             discord.SelectOption(label="5 meczów z rzędu", value="5"),
             discord.SelectOption(label="Wyłącz zupełnie", value="Off")
         ]
-        super().__init__(placeholder="Wybierz limit po którym działa alert...", options=options)
+        super().__init__(
+            custom_id="tilt_select",
+            placeholder="Wybierz limit po którym działa alert...",
+            options=options
+        )
 
     async def callback(self, interaction: discord.Interaction):
-        if not interaction.user.guild_permissions.administrator:
-            await interaction.response.send_message("❌ Brak uprawnień.", ephemeral=True)
+        if not interaction.guild or not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message("❌ Brak uprawnień lub polecenie poza serwerem.", ephemeral=True)
             return
 
         guild_id = interaction.guild.id
@@ -42,7 +46,8 @@ class TiltUICog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @commands.hybrid_command(name="tilt_config")
+    @commands.hybrid_command(name="tilt_config", description="Ustawienia progu alertów i roastów Tilt-Meter")
+    @commands.guild_only()
     @commands.has_permissions(administrator=True)
     @discord.app_commands.default_permissions(administrator=True)
     async def tilt_config(self, ctx):

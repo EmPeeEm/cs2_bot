@@ -1,4 +1,5 @@
 import json
+import logging
 import discord
 from discord.ext import commands
 from utils.database import (
@@ -9,6 +10,8 @@ from utils.database import (
 from utils.faceit_api import get_player_stats
 import config
 
+logger = logging.getLogger("SeasonUI")
+
 class SeasonStartModal(discord.ui.Modal, title='Rozpocznij nowy sezon ELO'):
     nazwa_sezonu = discord.ui.TextInput(
         label='Nazwa Sezonu (np. Sezon Jesienny)',
@@ -18,15 +21,23 @@ class SeasonStartModal(discord.ui.Modal, title='Rozpocznij nowy sezon ELO'):
     )
 
     async def on_submit(self, interaction: discord.Interaction):
+        if not interaction.guild:
+            await interaction.response.send_message("❌ Ta operacja wymaga serwera.", ephemeral=True)
+            return
+
         guild_id = interaction.guild.id
         await interaction.response.send_message("⏳ Zbieram aktualne dane graczy. Proszę czekać...", ephemeral=True)
         
         ekipa = wczytaj_ekipe(guild_id)
         start_elo = {}
-        for d_id, p_id in ekipa.items():
-            gracz = await get_player_stats(p_id, lifetime=False)
-            if gracz and gracz != "error" and str(gracz['elo']).isdigit():
-                start_elo[p_id] = int(gracz['elo'])
+        if ekipa:
+            import asyncio
+            p_ids = list(ekipa.values())
+            tasks = [get_player_stats(p_id, lifetime=False) for p_id in p_ids]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for p_id, gracz in zip(p_ids, results):
+                if isinstance(gracz, dict) and gracz.get('elo') and str(gracz['elo']).isdigit():
+                    start_elo[p_id] = int(gracz['elo'])
 
         nowy_sezon = {"nazwa": self.nazwa_sezonu.value, "start_elo": start_elo}
         ustawienia = wczytaj_ustawienia(guild_id)
@@ -36,7 +47,7 @@ class SeasonStartModal(discord.ui.Modal, title='Rozpocznij nowy sezon ELO'):
             target = interaction.guild.get_channel(int(kanal_id))
             if target: cel = target
 
-        await cel.send(f"🏆 **UROCZYŚCIE ROZPOCZYNAMY NOWY SEZON:** `{self.nazwa_sezonu.value}`!")
+        await cel.send(f"🏆 **Start nowego sezonu:** `{self.nazwa_sezonu.value}`!")
         
         leaderboard_embed = discord.Embed(
             title=f"📊 RANKING SEZONOWY: {self.nazwa_sezonu.value}",
@@ -80,12 +91,22 @@ class SeasonView(discord.ui.View):
         ekipa = wczytaj_ekipe(guild_id)
         wyniki = []
 
-        for d_id, p_id in ekipa.items():
-            gracz = await get_player_stats(p_id, lifetime=False)
-            if p_id in start_elo and gracz and gracz != "error":
-                obecne = int(gracz['elo']) if str(gracz['elo']).isdigit() else 0
-                progres = obecne - start_elo[p_id]
-                wyniki.append({"discord_id": d_id, "nick": gracz['nick'], "progres": progres, "obecne": obecne, "poziom": gracz.get('poziom', 0)})
+        if ekipa:
+            import asyncio
+            items = list(ekipa.items())
+            tasks = [get_player_stats(p_id, lifetime=False) for _, p_id in items]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for (d_id, p_id), gracz in zip(items, results):
+                if p_id in start_elo and isinstance(gracz, dict) and gracz.get("nick"):
+                    obecne = int(gracz['elo']) if str(gracz.get('elo', '')).isdigit() else 0
+                    progres = obecne - start_elo[p_id]
+                    wyniki.append({
+                        "discord_id": d_id,
+                        "nick": gracz['nick'],
+                        "progres": progres,
+                        "obecne": obecne,
+                        "poziom": gracz.get('poziom', 0)
+                    })
 
         wyniki.sort(key=lambda x: (x["progres"], x["obecne"]), reverse=True)
         if not wyniki:
@@ -163,7 +184,7 @@ class SeasonView(discord.ui.View):
             try:
                 await records_cog.update_records_board(guild_id)
             except Exception as e:
-                print(f"Błąd aktualizacji Hali Sław po zakończeniu sezonu: {e}")
+                logger.error(f"Błąd aktualizacji Hali Sław po zakończeniu sezonu: {e}")
 
         await interaction.followup.send("✅ Sezon został pomyślnie zakończony! Tabela wyników została zaktualizowana, a gratulacje wysłane na dedykowany kanał.", ephemeral=True)
 
@@ -171,15 +192,30 @@ class SeasonUICog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
+    async def cog_check(self, ctx: commands.Context) -> bool:
+        if not ctx.guild:
+            raise commands.NoPrivateMessage("Ta komenda może być używana tylko na serwerze.")
+        return True
+
     async def _generate_leaderboard_embed(self, guild_id, nazwa, start_elo):
         ekipa = wczytaj_ekipe(guild_id)
         wyniki = []
-        for d_id, p_id in ekipa.items():
-            gracz = await get_player_stats(p_id, lifetime=False)
-            if p_id in start_elo and gracz and gracz != "error":
-                obecne = int(gracz['elo']) if str(gracz['elo']).isdigit() else 0
-                progres = obecne - start_elo[p_id]
-                wyniki.append({"discord_id": d_id, "nick": gracz['nick'], "progres": progres, "obecne": obecne, "poziom": gracz.get('poziom', 0)})
+        if ekipa:
+            import asyncio
+            items = list(ekipa.items())
+            tasks = [get_player_stats(p_id, lifetime=False) for _, p_id in items]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for (d_id, p_id), gracz in zip(items, results):
+                if p_id in start_elo and isinstance(gracz, dict) and gracz.get("nick"):
+                    obecne = int(gracz['elo']) if str(gracz.get('elo', '')).isdigit() else 0
+                    progres = obecne - start_elo[p_id]
+                    wyniki.append({
+                        "discord_id": d_id,
+                        "nick": gracz['nick'],
+                        "progres": progres,
+                        "obecne": obecne,
+                        "poziom": gracz.get('poziom', 0)
+                    })
 
         wyniki.sort(key=lambda x: (x["progres"], x["obecne"]), reverse=True)
         opis = f"Ranking postępu w **{nazwa}**\n\n"
@@ -209,7 +245,7 @@ class SeasonUICog(commands.Cog):
             await msg.edit(embed=embed)
         except (discord.NotFound, discord.Forbidden, discord.HTTPException): pass
 
-    @commands.hybrid_command(name="sezon")
+    @commands.hybrid_command(name="sezon", description="Panel zarządzania sezonem rankingowym")
     @commands.has_permissions(administrator=True)
     @discord.app_commands.default_permissions(administrator=True)
     async def panel_sezon(self, ctx):
@@ -225,7 +261,7 @@ class SeasonUICog(commands.Cog):
         embed = await self._generate_leaderboard_embed(guild_id, nazwa, sezon_obecny.get('start_elo', {}))
         await ctx.send(embed=embed, view=SeasonView())
 
-    @commands.hybrid_command(name="sezon_reload", aliases=["sr"])
+    @commands.hybrid_command(name="sezon_reload", aliases=["sr"], description="Odświeża tabelę aktywnego sezonu")
     @commands.has_permissions(administrator=True)
     @discord.app_commands.default_permissions(administrator=True)
     async def panel_sezon_reload(self, ctx):
@@ -244,7 +280,7 @@ class SeasonUICog(commands.Cog):
         await self.update_live_leaderboard(guild_id)
         await msg.edit(content="✅ Ranking sezonowy został pomyślnie zaktualizowany!")
 
-    @commands.hybrid_command(name="sezon_repost", aliases=["sezon_resend", "srepost"])
+    @commands.hybrid_command(name="sezon_repost", aliases=["sezon_resend", "srepost"], description="Przenosi tabelę sezonu na dół kanału")
     @commands.has_permissions(administrator=True)
     @discord.app_commands.default_permissions(administrator=True)
     async def panel_sezon_repost(self, ctx):
@@ -281,7 +317,7 @@ class SeasonUICog(commands.Cog):
 
         await status_msg.edit(content="✅ Tabela sezonu została pomyślnie wysłana na nowo na dedykowanym kanale, a poprzednia usunięta!")
 
-    @commands.hybrid_command(name="sezony", aliases=["sezon_lista", "seasons"])
+    @commands.hybrid_command(name="sezony", aliases=["sezon_lista", "seasons"], description="Lista wszystkich sezonów i zwycięzców MVP")
     @commands.has_permissions(administrator=True)
     @discord.app_commands.default_permissions(administrator=True)
     async def cmd_sezony_lista(self, ctx):
@@ -321,7 +357,7 @@ class SeasonUICog(commands.Cog):
         embed.set_footer(text=f"Aby przypisać MVP: {ctx.prefix}sezon_set_mvp <ID> @gracz <progres_elo>")
         await ctx.send(embed=embed)
 
-    @commands.hybrid_command(name="sezon_set_mvp", aliases=["sezon_ustaw_mvp", "set_season_mvp"])
+    @commands.hybrid_command(name="sezon_set_mvp", aliases=["sezon_ustaw_mvp", "set_season_mvp"], description="Ręczne przypisanie MVP dla sezonu")
     @commands.has_permissions(administrator=True)
     @discord.app_commands.default_permissions(administrator=True)
     async def cmd_sezon_set_mvp(self, ctx, id_lub_nazwa: str, member: discord.Member, progres_elo: int = 0):
@@ -355,7 +391,7 @@ class SeasonUICog(commands.Cog):
             try:
                 await records_cog.update_records_board(ctx.guild.id)
             except Exception as e:
-                print(f"Błąd aktualizacji Hali Sław: {e}")
+                logger.error(f"Błąd aktualizacji Hali Sław: {e}")
                 
         znak = "+" if progres_elo > 0 else ""
         await ctx.send(f"✅ Pomyślnie ustawiono MVP dla sezonu **{s_name}** (`ID: {s_id}`): {member.mention} (*{znak}{progres_elo} ELO*)!\n🏆 Karta w Hali Sław została zaktualizowana.")

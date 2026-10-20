@@ -4,10 +4,13 @@ from discord.ext import commands, tasks
 import asyncio
 import time
 import datetime
+import logging
 import config
 from utils.database import wczytaj_ekipe, wczytaj_ustawienia, zapisz_ustawienia, get_cfg
 from utils.faceit_api import get_latest_match_id, get_player_ongoing_match_id, get_match_details, get_player_stats
 from utils.helpers import safe_rename_channel
+
+logger = logging.getLogger("LiveMatches")
 
 STATUS_LABELS = {
     "VOTING": "🟡 Faza Veto / Wybór mapy",
@@ -41,7 +44,13 @@ class LiveMatchesCog(commands.Cog):
         self.active_matches = {}
         self.channel_rename_history = {} # channel_id -> list of timestamps in last 10m
         self._locks = {} # guild_id -> asyncio.Lock()
+        self._idle_state = {} # guild_id -> bool (zapobiega edycji wiadomości bezczynności co 10s)
         self.live_monitor.start()
+
+    async def cog_check(self, ctx: commands.Context) -> bool:
+        if not ctx.guild:
+            raise commands.NoPrivateMessage("Ta komenda może być używana tylko na serwerze.")
+        return True
 
     def cog_unload(self):
         self.live_monitor.cancel()
@@ -102,7 +111,7 @@ class LiveMatchesCog(commands.Cog):
                     if fail_count <= 6:
                         updated_active[match_id] = match_data
             except Exception as e:
-                print(f"⚠️ [LIVE] Błąd sprawdzania aktywnego meczu {match_id}: {e}")
+                logger.warning(f"[LIVE] Błąd sprawdzania aktywnego meczu {match_id}: {e}")
                 updated_active[match_id] = match_data
 
         # 2. KROK 2: Sprawdzamy graczy, którzy NIE SĄ w żadnym z aktualnie śledzonych meczów
@@ -156,21 +165,20 @@ class LiveMatchesCog(commands.Cog):
                     for _, p_id in our_players:
                         players_in_tracked.add(p_id)
             except Exception as e:
-                print(f"⚠️ [LIVE] Błąd podczas sprawdzania gracza {player_id}: {e}")
+                logger.warning(f"[LIVE] Błąd podczas sprawdzania gracza {player_id}: {e}")
 
         self.active_matches[guild_id] = updated_active
         return updated_active
 
     def _build_idle_embed(self, guild_id):
         """Buduje embed informujący o braku aktywnych gier."""
-        now_str = datetime.datetime.now().strftime("%H:%M:%S")
         embed = discord.Embed(
             title="🟢 MECZE NA ŻYWO: Brak aktywnych gier",
             description="*Żaden z zarejestrowanych graczy nie rozgrywa obecnie meczu na Faceicie.*\n\n"
                         "Gdy ktoś rozpocznie mecz, oddzielna karta spotkania ze składami, ELO i wynikiem na żywo pojawi się tutaj automatycznie.",
             color=0x2ecc71
         )
-        embed.set_footer(text=f"Stan na {now_str} • Auto-odświeżanie co ~10s")
+        embed.set_footer(text="Auto-odświeżanie aktywne • Oczekiwanie na start meczu")
         return embed
 
     def _build_single_match_embed(self, guild_id, match_id, data):
@@ -480,7 +488,7 @@ class LiveMatchesCog(commands.Cog):
 
             channel = guild.get_channel(int(kanal_id))
             if not channel:
-                print(f"⚠️ [LIVE] Nie znaleziono kanału o ID {kanal_id} w gildii {guild_id}")
+                logger.warning(f"[LIVE] Nie znaleziono kanału o ID {kanal_id} w gildii {guild_id}")
                 return
 
             active = await self._fetch_guild_active_matches(guild_id)
@@ -506,7 +514,7 @@ class LiveMatchesCog(commands.Cog):
                 if current_name != target_name:
                     asyncio.create_task(self._safe_rename_channel(channel, target_name))
             except Exception as e:
-                print(f"⚠️ [LIVE] Błąd przygotowania zmiany nazwy kanału {channel.id}: {e}")
+                logger.warning(f"[LIVE] Błąd przygotowania zmiany nazwy kanału {channel.id}: {e}")
 
             live_matches_msg_ids = ustawienia.get("live_matches_msg_ids")
             if not isinstance(live_matches_msg_ids, dict):
@@ -524,33 +532,36 @@ class LiveMatchesCog(commands.Cog):
                     except discord.NotFound:
                         pass
                     except Exception as e:
-                        print(f"⚠️ [LIVE] Nie udało się usunąć starej wiadomości meczu {m_id}: {e}")
+                        logger.warning(f"[LIVE] Nie udało się usunąć starej wiadomości meczu {m_id}: {e}")
                 live_matches_msg_ids = {}
 
-                # 2. Wyświetlamy lub aktualizujemy wiadomość stanu czuwania (idle)
-                idle_embed = self._build_idle_embed(guild_id)
-                if idle_msg_id:
-                    try:
-                        idle_msg = await channel.fetch_message(int(idle_msg_id))
-                        await idle_msg.edit(embed=idle_embed, view=None)
-                    except discord.NotFound:
+                # 2. Wyświetlamy lub upewniamy się, że wiadomość stanu czuwania (idle) istnieje
+                # Jeśli serwer jest już oznaczony jako idle i wiadomość istnieje, nie robimy zbędnych fetch/edit co 10s!
+                already_idle = self._idle_state.get(guild_id, False)
+                if not already_idle or not idle_msg_id:
+                    idle_embed = self._build_idle_embed(guild_id)
+                    if idle_msg_id:
+                        try:
+                            idle_msg = await channel.fetch_message(int(idle_msg_id))
+                            await idle_msg.edit(embed=idle_embed, view=None)
+                            self._idle_state[guild_id] = True
+                        except discord.NotFound:
+                            idle_msg_id = None
+                        except discord.HTTPException as e:
+                            logger.warning(f"[LIVE] Chwilowy błąd edycji wiadomości idle: {e}")
+
+                    if not idle_msg_id:
                         try:
                             new_idle = await channel.send(embed=idle_embed)
                             idle_msg_id = new_idle.id
+                            self._idle_state[guild_id] = True
                         except Exception as e:
-                            print(f"⚠️ [LIVE] Błąd wysyłania nowej wiadomości idle: {e}")
-                    except discord.HTTPException as e:
-                        # Chwilowy błąd Discorda (np. rate limit/500) - nie duplikujemy wiadomości
-                        print(f"⚠️ [LIVE] Chwilowy błąd edycji wiadomości idle: {e}")
-                else:
-                    try:
-                        new_idle = await channel.send(embed=idle_embed)
-                        idle_msg_id = new_idle.id
-                    except Exception as e:
-                        print(f"⚠️ [LIVE] Błąd wysyłania wiadomości idle: {e}")
+                            logger.error(f"[LIVE] Błąd wysyłania wiadomości idle: {e}")
 
             else:
                 # SĄ AKTYWNE MECZE (oddzielne wiadomości per mecz)
+                self._idle_state[guild_id] = False
+
                 # 1. Usuwamy wiadomość czuwania (idle)
                 if idle_msg_id:
                     try:
@@ -584,16 +595,16 @@ class LiveMatchesCog(commands.Cog):
                                 new_msg = await channel.send(embed=embed, view=view)
                                 live_matches_msg_ids[match_id] = new_msg.id
                             except Exception as e:
-                                print(f"⚠️ [LIVE] Błąd wysyłania wiadomości dla meczu {match_id}: {e}")
+                                logger.error(f"[LIVE] Błąd wysyłania wiadomości dla meczu {match_id}: {e}")
                         except discord.HTTPException as e:
                             # Chwilowy błąd - nie tworzymy nowej wiadomości, spróbujemy w kolejnym ticku
-                            print(f"⚠️ [LIVE] Chwilowy błąd edycji wiadomości dla meczu {match_id}: {e}")
+                            logger.warning(f"[LIVE] Chwilowy błąd edycji wiadomości dla meczu {match_id}: {e}")
                     else:
                         try:
                             new_msg = await channel.send(embed=embed, view=view)
                             live_matches_msg_ids[match_id] = new_msg.id
                         except Exception as e:
-                            print(f"⚠️ [LIVE] Błąd wysyłania wiadomości dla meczu {match_id}: {e}")
+                            logger.error(f"[LIVE] Błąd wysyłania wiadomości dla meczu {match_id}: {e}")
 
             # Zapisujemy zaktualizowane ID w bazie
             ustawienia["live_idle_msg_id"] = idle_msg_id
@@ -610,18 +621,20 @@ class LiveMatchesCog(commands.Cog):
                 if ustawienia.get("kanal_live"):
                     await self.update_live_dashboard(guild.id)
             except Exception as e:
-                print(f"Błąd w live_monitor dla gildii {guild.id}: {e}")
+                logger.error(f"Błąd w live_monitor dla gildii {guild.id}: {e}", exc_info=True)
 
     @live_monitor.before_loop
     async def before_live_monitor(self):
         await self.bot.wait_until_ready()
 
-    @commands.hybrid_command(name="live_setup", aliases=["ls", "na_zywo_setup"])
+    @commands.hybrid_command(name="live_setup", aliases=["ls", "na_zywo_setup"], description="Konfiguruje kanał do śledzenia meczów na żywo")
     @commands.has_permissions(administrator=True)
     @discord.app_commands.default_permissions(administrator=True)
     async def cmd_live_setup(self, ctx, kanal: discord.TextChannel = None):
         """Konfiguruje dedykowany kanał do śledzenia meczów na żywo."""
+        await ctx.defer()
         guild_id = ctx.guild.id
+        self._idle_state[guild_id] = False
         ustawienia = wczytaj_ustawienia(guild_id)
 
         target_channel = kanal or ctx.channel
@@ -639,16 +652,18 @@ class LiveMatchesCog(commands.Cog):
         ustawienia["live_matches_msg_ids"] = {}
         zapisz_ustawienia(guild_id, ustawienia)
 
-        msg = await ctx.send(f"⏳ Inicjalizuję dashboard na żywo na kanale {target_channel.mention}...")
+        msg = await ctx.send(f"⏳ Przygotowuję dashboard meczów na żywo na kanale {target_channel.mention}...")
         await self.update_live_dashboard(guild_id)
         await msg.edit(content=f"✅ Dashboard meczów na żywo został pomyślnie skonfigurowany na kanale {target_channel.mention}!")
 
-    @commands.hybrid_command(name="live_reload", aliases=["lr"])
+    @commands.hybrid_command(name="live_reload", aliases=["lr"], description="Odświeża dashboard meczów na żywo")
     @commands.has_permissions(administrator=True)
     @discord.app_commands.default_permissions(administrator=True)
     async def cmd_live_reload(self, ctx):
         """Natychmiastowo odświeża dashboard meczów na żywo."""
+        await ctx.defer()
         guild_id = ctx.guild.id
+        self._idle_state[guild_id] = False
         ustawienia = wczytaj_ustawienia(guild_id)
         if not ustawienia.get("kanal_live"):
             await ctx.send(f"❌ Brak skonfigurowanego kanału live. Użyj `{ctx.prefix}live_setup`.", delete_after=6)
@@ -658,12 +673,14 @@ class LiveMatchesCog(commands.Cog):
         await self.update_live_dashboard(guild_id)
         await msg.edit(content="✅ Dashboard meczów na żywo został zaktualizowany!")
 
-    @commands.hybrid_command(name="live_repost")
+    @commands.hybrid_command(name="live_repost", description="Przenosi dashboard meczów na żywo na dół kanału")
     @commands.has_permissions(administrator=True)
     @discord.app_commands.default_permissions(administrator=True)
     async def cmd_live_repost(self, ctx):
         """Usuwa poprzednie wiadomości dashboardu i wysyła nowe na sam dół kanału."""
+        await ctx.defer()
         guild_id = ctx.guild.id
+        self._idle_state[guild_id] = False
         ustawienia = wczytaj_ustawienia(guild_id)
         kanal_id = ustawienia.get("kanal_live")
         if not kanal_id:

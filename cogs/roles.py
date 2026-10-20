@@ -29,6 +29,11 @@ class FaceitRolesCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
+    async def cog_check(self, ctx: commands.Context) -> bool:
+        if not ctx.guild:
+            raise commands.NoPrivateMessage("Ta komenda może być używana tylko na serwerze.")
+        return True
+
     def get_faceit_roles_map(self, guild: discord.Guild) -> typing.Dict[int, discord.Role]:
         """Zwraca mapowanie poziomu Faceit (1-10) na obiekty discord.Role danej gildii."""
         ustawienia = wczytaj_ustawienia(guild.id)
@@ -92,16 +97,16 @@ class FaceitRolesCog(commands.Cog):
             if target_role not in member.roles:
                 await member.add_roles(target_role, reason=f"Aktualizacja poziomu Faceit (awans/spadek na Level {new_level})")
             
-            logger.info(f"✅ Zaktualizowano rolę dla {member.display_name} w '{guild.name}' -> {target_role.name}")
+            logger.info(f"Zaktualizowano rolę dla {member.display_name} w '{guild.name}' -> {target_role.name}")
             return True
         except discord.Forbidden:
             logger.warning(
-                f"⚠️ Brak uprawnień do nadania roli {target_role.name} dla {member.display_name} "
+                f"Brak uprawnień do nadania roli {target_role.name} dla {member.display_name} "
                 f"na serwerze '{guild.name}'. Sprawdź czy rola bota jest wyżej w hierarchii serwera!"
             )
             return False
         except Exception as e:
-            logger.error(f"❌ Błąd podczas aktualizacji roli dla {member.display_name}: {e}")
+            logger.error(f"Błąd podczas aktualizacji roli dla {member.display_name}: {e}")
             return False
 
     async def remove_all_faceit_roles(self, guild: discord.Guild, member: discord.Member) -> bool:
@@ -305,7 +310,7 @@ class FaceitRolesCog(commands.Cog):
     @commands.hybrid_group(
         name="faceit_roles",
         aliases=["roles"],
-        description="Zarządzanie automatycznym systemem ról Faceit Level 1-10"
+        description="Zarządzanie rolami Faceit Level 1-10"
     )
     @commands.has_permissions(administrator=True)
     @discord.app_commands.default_permissions(administrator=True)
@@ -316,7 +321,7 @@ class FaceitRolesCog(commands.Cog):
 
     @faceit_roles.command(
         name="setup",
-        description="Automatycznie tworzy i konfiguruje role Faceit Level 1-10 z paletą kolorów"
+        description="Tworzy role Faceit Level 1-10 na serwerze"
     )
     @commands.has_permissions(administrator=True)
     @discord.app_commands.default_permissions(administrator=True)
@@ -325,7 +330,7 @@ class FaceitRolesCog(commands.Cog):
 
     @faceit_roles.command(
         name="sync",
-        description="Synchronizuje role Faceit dla wszystkich graczy połączonych na serwerze"
+        description="Aktualizuje role Faceit połączonym graczom"
     )
     @commands.has_permissions(administrator=True)
     @discord.app_commands.default_permissions(administrator=True)
@@ -336,7 +341,7 @@ class FaceitRolesCog(commands.Cog):
     @commands.hybrid_command(
         name="faceit_roles_setup",
         aliases=["roles_setup", "faceit_setup_roles"],
-        description="Tworzy i konfiguruje role Faceit Level 1-10 z paletą kolorów"
+        description="Tworzy role Faceit Level 1-10 na serwerze"
     )
     @commands.has_permissions(administrator=True)
     @discord.app_commands.default_permissions(administrator=True)
@@ -346,7 +351,7 @@ class FaceitRolesCog(commands.Cog):
     @commands.hybrid_command(
         name="faceit_roles_sync",
         aliases=["roles_sync", "sync_roles"],
-        description="Synchronizuje role Faceit dla wszystkich graczy z ekipy"
+        description="Aktualizuje role Faceit połączonym graczom"
     )
     @commands.has_permissions(administrator=True)
     @discord.app_commands.default_permissions(administrator=True)
