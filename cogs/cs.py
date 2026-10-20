@@ -4,8 +4,11 @@ import discord
 from discord.ext import commands
 import typing
 import asyncio
+import logging
 from utils.faceit_api import get_player_stats, is_uuid, get_player_id
 import config
+
+logger = logging.getLogger("CSCommands")
 from utils.database import (
     wczytaj_ekipe, zapisz_ekipe, wczytaj_sezon, zapisz_sezon, 
     get_cfg, pobierz_historie_elo, pobierz_mecze_z_bazy
@@ -17,8 +20,19 @@ class HelpView(discord.ui.View):
         super().__init__(timeout=180)
         self.bot_cog = bot_cog
         self.ctx = ctx
+        self.message = None
         self.current_page = current_page
         self._update_buttons()
+
+    async def on_timeout(self):
+        for child in self.children:
+            if isinstance(child, discord.ui.Button):
+                child.disabled = True
+        if self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
 
     def _update_buttons(self):
         self.clear_items()
@@ -82,7 +96,12 @@ class CSCommands(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @commands.hybrid_command(name="stats", aliases=["statystyki", "s", "fs"], description="Paszport statystyk gracza Faceit")
+    async def cog_check(self, ctx: commands.Context) -> bool:
+        if not ctx.guild:
+            raise commands.NoPrivateMessage("Ta komenda może być używana tylko na serwerze.")
+        return True
+
+    @commands.hybrid_command(name="stats", aliases=["statystyki", "s", "fs"], description="Statystyki gracza Faceit (ELO, K/D, mecze)")
     async def sprawdz_elo(self, ctx, gracz: typing.Optional[str] = None):
         await ctx.defer()
         guild_id = ctx.guild.id
@@ -91,53 +110,48 @@ class CSCommands(commands.Cog):
         if not await self.check_nick(ctx, nickname, gracz):
             return
 
-        msg = await ctx.send(f"Przeszukuję serwery Faceit dla **{display_name}**...")
+        msg = await ctx.send(f"Pobieram statystyki Faceit dla **{display_name}**...")
         
-        # Pobieramy dane używając naszego pliku z utils
         dane = await get_player_stats(nickname)
         
         if dane is None:
-            await msg.edit(content=f"Nie znalazłem gracza `{nickname}` na Faceit.")
+            await msg.edit(content=f"Nie znaleziono gracza `{nickname}` na Faceit.")
             return
         elif dane == "error":
-            await msg.edit(content="Błąd łączenia z Faceit. Spróbuj ponownie później.")
+            await msg.edit(content="Błąd połączenia z API Faceit. Spróbuj ponownie za chwilę.")
             return
 
-        # Budujemy profesjonalną ramkę (Embed)
         embed = discord.Embed(
-            title=f"Statystyki FACEIT - {dane['nick']}",
+            title=f"Statystyki Faceit — {dane['nick']}",
             url=dane['url_profilu'],
             color=get_cfg(guild_id, "main_color", 0x2b2d31)
         )
         embed.set_thumbnail(url=dane['avatar_url'])
-        # Wyciągamy level gracza jako tekst (np. "8")
         poziom = str(dane['poziom'])
         
-        # Szukamy emotki w configu.
         emotki = get_cfg(guild_id, "level_emojis", config.LEVEL_EMOJIS)
         emotka_levelu = emotki.get(poziom, get_cfg(guild_id, "level_default", config.LEVEL_DEFAULT))
 
-        embed.description = f"{emotka_levelu} **{dane['elo']} ELO**  |  Rozegrane Mecze: **{dane['lifetime_matches']}**"
+        embed.description = f"{emotka_levelu} **{dane['elo']} ELO**  |  Rozegrane mecze: **{dane['lifetime_matches']}**"
         
-        embed.add_field(name="Ratingi i Pomiary", 
+        embed.add_field(name="Statystyki strzeleckie", 
                         value=f"K/D Ratio: **{dane['lifetime_kd']}**\n"
-                              f"ADR (Śr. Obr.): **{dane['lifetime_adr']}**\n"
-                              f"Headshoty (HS%): **{dane['lifetime_hs']}%**", inline=True)
+                              f"ADR: **{dane['lifetime_adr']}**\n"
+                              f"Headshoty: **{dane['lifetime_hs']}%**", inline=True)
 
-        embed.add_field(name="Skuteczność Ogólna", 
+        embed.add_field(name="Bilans i forma", 
                         value=f"Win Rate: **{dane['lifetime_winrate']}%**\n"
-                              f"Wygrane Mecze: **{dane['lifetime_wins']}**\n"
-                              f"Obecny Winstreak: **{dane['lifetime_winstreak']}**", inline=True)
+                              f"Wygrane mecze: **{dane['lifetime_wins']}**\n"
+                              f"Seria wygranych: **{dane['lifetime_winstreak']}**", inline=True)
                               
-        embed.add_field(name="Zgranie i Playmaking", 
-                        value=f"Wygrane Clutche (1vX): **{dane['lifetime_clutches']}**\n"
-                              f"Otwierające zab. (Entry): **{dane['lifetime_entry']}**", inline=False)
-                              
+        embed.add_field(name="Clutche i Entry", 
+                        value=f"Wygrane clutche: **{dane['lifetime_clutches']}**\n"
+                              f"First Kills (Entry): **{dane['lifetime_entry']}**", inline=False)
 
-        # Edytujemy wiadomość ładowania, podmieniając ją na ładnego embeda
         await msg.edit(content=None, embed=embed)
+        logger.info(f"Wyświetlono statystyki dla {dane['nick']} ({dane['elo']} ELO) w gildii {guild_id}")
 
-    @commands.hybrid_command(name="last", aliases=["mecz", "l", "fl"], description="Szczegółowa karta ostatniego meczu")
+    @commands.hybrid_command(name="last", aliases=["mecz", "l", "fl"], description="Statystyki ostatniego meczu Faceit")
     async def ostatni_mecz(self, ctx, gracz: typing.Optional[str] = None):
         await ctx.defer()
         guild_id = ctx.guild.id
@@ -187,7 +201,7 @@ class CSCommands(commands.Cog):
         entry_text = f"Entry Wins: **{int(mecz.get('entry_wins', 0))}** (Skuteczność: **{entry_rate}%**)"
 
         embed.add_field(
-            name="Rezultaty Strzeleckie", 
+            name="Statystyki strzeleckie", 
             value=f"K/D/A: **{int(mecz['kille'])} / {int(mecz['dedy'])} / {int(mecz['asysty'])}**\n"
                   f"K/D Ratio: **{mecz['kd']}**\n"
                   f"{entry_text}\n"
@@ -207,9 +221,9 @@ class CSCommands(commands.Cog):
             extra_stats = f"\nFlash Success: **{flash_rate}%**"
 
         embed.add_field(
-            name="Utility i Zgranie", 
+            name="Granaty i Clutche", 
             value=f"Headshoty: **{int(mecz['hs_procent'])}%**\n"
-                  f"Wygrane Clutche: **{suma_clutches}**\n"
+                  f"Wygrane clutche: **{suma_clutches}**\n"
                   f"Utility Dmg: **{int(mecz.get('ud', 0))}**\n"
                   f"MVPs: **{int(mecz['mvp'])}**"
                   f"{extra_stats}", 
@@ -220,12 +234,11 @@ class CSCommands(commands.Cog):
 
         await msg.edit(content=None, embed=embed)
 
-    @commands.hybrid_command(name="top", aliases=["leaderboard", "ranking"], description="Tabela liderów ekipy serwera posortowana wg ELO")
+    @commands.hybrid_command(name="top", aliases=["leaderboard", "ranking"], description="Ranking graczy ekipy wg ELO")
     async def tablica_wynikow(self, ctx):
         await ctx.defer()
         guild_id = ctx.guild.id
-        # Ta komenda musi sprawdzić kilka osób, więc zajmie botowi sekundę lub dwie
-        msg = await ctx.send("Zbieram dane z serwerów Faceit... (to potrwa chwilę)")
+        msg = await ctx.send("Pobieram ranking ekipy z Faceita...")
         
         # (NOWY KOD)
         ekipa = wczytaj_ekipe(guild_id)
@@ -258,7 +271,7 @@ class CSCommands(commands.Cog):
 
         # Tworzymy ładną ramkę
         embed = discord.Embed(
-            title=f"Ranking Ekipy - {sezon['nazwa'] if sezon_aktywny else 'FACEIT'}",
+            title=f"Ranking Ekipy — {sezon['nazwa'] if sezon_aktywny else 'Faceit'}",
             color=get_cfg(guild_id, "main_color", 0x2b2d31)
         )
 
@@ -289,9 +302,9 @@ class CSCommands(commands.Cog):
                 start_elo = sezon['start_elo'][gracz['player_id']]
                 diff = obecne - start_elo
                 if diff > 0:
-                    opis += f" *(+{diff} )*\n"
+                    opis += f" *(+{diff} ELO)*\n"
                 elif diff < 0:
-                    opis += f" *({diff} )*\n"
+                    opis += f" *({diff} ELO)*\n"
                 else:
                     opis += " *(Bez zmian)*\n"
             else:
@@ -302,7 +315,7 @@ class CSCommands(commands.Cog):
         # Edytujemy naszą wiadomość o ładowaniu na gotową tablicę
         await msg.edit(content=None, embed=embed)
 
-    @commands.hybrid_command(name="streaks", aliases=["passa", "st"], description="Zestawienie aktualnych serii zwycięstw / porażek ekipy")
+    @commands.hybrid_command(name="streaks", aliases=["passa", "st"], description="Serie zwycięstw i porażek (streaki) ekipy")
     async def zestawienie_passy(self, ctx):
         """Wyświetla aktualne serie zwycięstw/porażek dla całej ekipy."""
         await ctx.defer()
@@ -340,8 +353,8 @@ class CSCommands(commands.Cog):
         wyniki.sort(key=lambda x: x["streak"], reverse=True)
 
         embed = discord.Embed(
-            title="🔥 Termometr Ekipy — Serie Gier",
-            description="Zestawienie aktualnych serii zwycięstw i porażek w bieżącej sesji.",
+            title="🔥 Serie zwycięstw i porażek (Streaki)",
+            description="Aktualne serie zwycięstw i porażek członków ekipy.",
             color=get_cfg(guild_id, "main_color", 0x2b2d31)
         )
 
@@ -349,22 +362,22 @@ class CSCommands(commands.Cog):
         for r in wyniki:
             if r['streak'] > 0:
                 ikonka = "🔥" * min(r['streak'], 3) # Max 3 ogniki
-                stan = f"**{r['streak']} Win(s)**"
+                stan = f"**+{r['streak']} W**"
             elif r['streak'] < 0:
                 ikonka = "❄️" * min(abs(r['streak']), 3)
-                stan = f"**{abs(r['streak'])} Loss(es)**"
+                stan = f"**-{abs(r['streak'])} L**"
             else:
                 ikonka = "⚪"
-                stan = "Brak serii"
+                stan = "Czysto (0)"
             
             opis += f"{ikonka} <@{r['discord_id']}> — {stan}\n"
 
         embed.description = opis if opis else "Wszyscy na czysto!"
-        embed.set_footer(text="Passa liczona od ostatniego wykrycia przez bota.")
+        embed.set_footer(text="Seria liczona na podstawie ostatnich meczów.")
         
         await msg.edit(content=None, embed=embed)
 
-    @commands.hybrid_command(name="polacz", aliases=["link", "ln"], description="Połącz konto Discord z profilem Faceit")
+    @commands.hybrid_command(name="polacz", aliases=["link", "ln"], description="Połącz profil Discord z kontem Faceit")
     async def polacz_konto(self, ctx, nick: str, gracz: typing.Optional[discord.Member] = None):
         guild_id = ctx.guild.id
         discord_id = str(ctx.author.id)
@@ -428,6 +441,7 @@ class CSCommands(commands.Cog):
                 zapisz_sezon(guild_id, sezon)
                 
         await msg.edit(content=f"<@{discord_id}> pomyślnie powiązano z kontem **{faceit_nick}** na Faceit.")
+        logger.info(f"Powiązano profil Discord {discord_id} z kontem Faceit {faceit_nick} w gildii {guild_id}")
 
         # Automatyczne nadanie roli Faceit na Discordzie
         roles_cog = self.bot.get_cog("FaceitRolesCog")
@@ -451,6 +465,7 @@ class CSCommands(commands.Cog):
             usuniety = ekipa.pop(discord_id)
             zapisz_ekipe(guild_id, ekipa)
             await ctx.send(f"Odłączono powiązanie z profilu <@{discord_id}>.")
+            logger.info(f"Odłączono profil Discord {discord_id} z Faceit w gildii {guild_id}")
 
             # Usunięcie ról Faceit z odłączonego profilu
             roles_cog = self.bot.get_cog("FaceitRolesCog")
@@ -461,7 +476,7 @@ class CSCommands(commands.Cog):
         else:
             await ctx.send(f"Ten profil nie ma obecnie podpiętego konta Faceit.")
 
-    @commands.hybrid_command(name="recent", aliases=["ostatnie", "r", "fr"], description="Średnie statystyki z ostatnich gier z bazy danych")
+    @commands.hybrid_command(name="recent", aliases=["ostatnie", "r", "fr"], description="Średnie statystyki z ostatnich gier (domyślnie 20)")
     async def komenda_stats(self, ctx, argument1: typing.Optional[str] = None, argument2: typing.Optional[str] = None):
         await ctx.defer()
         guild_id = ctx.guild.id
@@ -533,7 +548,7 @@ class CSCommands(commands.Cog):
         emotka_levelu = emotki.get(poziom, get_cfg(guild_id, "level_default", config.LEVEL_DEFAULT))
 
         embed = discord.Embed(
-            title=f"Seria Ostatnich {len(mecze)} Spotkań - {gracz['nick']}",
+            title=f"Ostatnie {len(mecze)} meczów — {gracz['nick']}",
             description=f"Skuteczność: **{wr}%** ({wygrane}W - {len(mecze)-wygrane}L)\n"
                         f"Bilans ELO: **{elo_diff_text}**\n"
                         f"Est. HLTV: **{avg_hltv:.2f}**\n\n"
@@ -543,14 +558,14 @@ class CSCommands(commands.Cog):
         
         embed.set_thumbnail(url=gracz['avatar_url'])
         
-        embed.add_field(name="Strzeleckie Pomiary", 
+        embed.add_field(name="Statystyki strzeleckie", 
                         value=f"Kille (śr): **{avg_kills:.1f}**\n"
                               f"K/D Ratio: **{avg_kd:.2f}**\n"
                               f"KPR: **{avg_kr:.2f}**\n"
                               f"Headshoty: **{avg_hs:.0f}%**\n"
                               f"ADR (śr): **{avg_adr:.1f}**", inline=True)
 
-        embed.add_field(name="Taktyka & Zagrywki", 
+        embed.add_field(name="Granaty i Clutche", 
                         value=f"Wszystkie First Kills: **{sum_entry}**\n"
                               f"Wygrane Clutche (1vX): **{sum_clutches}**\n"
                               f"Oślepieni wrogowie (śr): **{avg_ef:.1f}**\n"
@@ -602,7 +617,7 @@ class CSCommands(commands.Cog):
             await ctx.send(f"Podaj nick gracza albo połącz najpierw konto wpisując `{ctx.prefix}polacz [TwójNick]`.")
         return False
 
-    @commands.hybrid_command(name="elo", aliases=["e", "fe"], description="Szybki podgląd poziomu, ELO oraz paska postępu")
+    @commands.hybrid_command(name="elo", aliases=["e", "fe"], description="Poziom Faceit, ELO i punkty do awansu/spadku")
     async def komenda_szybkie_elo(self, ctx, gracz: typing.Optional[str] = None):
         await ctx.defer()
         guild_id = ctx.guild.id
@@ -612,7 +627,7 @@ class CSCommands(commands.Cog):
             return
             
         from utils.faceit_api import get_player_stats
-        msg = await ctx.send(f"Sprawdzam aktualne punkty: **{display_name}**...")
+        msg = await ctx.send(f"Sprawdzam ELO dla **{display_name}**...")
         dane = await get_player_stats(faceit_nick)
         
         if not dane or dane == "error":
@@ -635,7 +650,7 @@ class CSCommands(commands.Cog):
                 break
                 
         if obecne_elo >= 2000:
-            opis = f"Awansowałeś na szczyt! Brak kolejnych poziomów."
+            opis = "Maksymalny poziom (Level 10) osiągnięty!"
             kolor = 0xFFD700
         else:
             opis = f"🟢 **{do_awansu} ELO** brakuje do wyższego poziomu.\n🔴 **{do_spadku} ELO** zapasu przed spadkiem."
@@ -646,14 +661,14 @@ class CSCommands(commands.Cog):
         emotka_levelu = emotki.get(poziom, get_cfg(guild_id, "level_default", config.LEVEL_DEFAULT))
         
         embed = discord.Embed(
-            title=f"Błyskawiczne ELO: {dane['nick']}",
+            title=f"Punkty ELO — {dane['nick']}",
             description=f"Aktualny stan: {emotka_levelu} **{obecne_elo}**\n\n{opis}",
             color=kolor
         )
         embed.set_thumbnail(url=dane['avatar_url'])
         await msg.edit(content=None, embed=embed)
 
-    @commands.hybrid_command(name="history", aliases=["hist", "historia"], description="Lista 5 ostatnich spotkań z wynikami i statystykami")
+    @commands.hybrid_command(name="history", aliases=["hist", "historia"], description="Ostatnie 5 meczów z wynikami i statystykami")
     async def komenda_historia(self, ctx, gracz: typing.Optional[str] = None):
         await ctx.defer()
         guild_id = ctx.guild.id
@@ -675,9 +690,8 @@ class CSCommands(commands.Cog):
             return
             
         embed = discord.Embed(
-            title=f"Dziennik Spotkań", 
-            description=f"Profil operacyjny: **{gracz['nick']}**\n"
-                        f"Raport z {len(mecze)} ostatnich gier", 
+            title=f"Ostatnie mecze — {gracz['nick']}", 
+            description=f"Wyniki z ostatnich {len(mecze)} gier na Faceit:", 
             color=get_cfg(guild_id, "main_color", 0x2b2d31)
         )
         for i, mecz in enumerate(mecze, 1):
@@ -695,7 +709,7 @@ class CSCommands(commands.Cog):
         embed.set_thumbnail(url=gracz['avatar_url'])
         await msg.edit(content=None, embed=embed)
         
-    @commands.hybrid_command(name="maps", aliases=["mapy", "m"], description="Skuteczność na poszczególnych mapach 5v5")
+    @commands.hybrid_command(name="maps", aliases=["mapy", "m"], description="Statystyki i Win Rate na mapach 5v5")
     async def komenda_mapy(self, ctx, gracz: typing.Optional[str] = None):
         await ctx.defer()
         guild_id = ctx.guild.id
@@ -750,15 +764,15 @@ class CSCommands(commands.Cog):
         mapy_pool.sort(key=lambda x: (x["wr"], x["kd"]), reverse=True)
             
         embed = discord.Embed(
-            title="Analityka Map Turniejowych (Dashboard)",
-            description=f"Szczegółowa wydajność operacyjna dla: **{gracz['nick']}**",
+            title=f"Statystyki map 5v5 — {gracz['nick']}",
+            description="Skuteczność na mapach turniejowych w CS2:",
             color=get_cfg(guild_id, "main_color", 0x2b2d31)
         )
         
         for m in mapy_pool:
             if m['mecze'] == 0:
                 emoji = "⚪"
-                value_text = "*Brak zarejestrowanych operacji*"
+                value_text = "*Brak rozegranych meczów*"
             else:
                 if m['wr'] >= 55: emoji = "🟢"
                 elif m['wr'] >= 45: emoji = "🟡"
@@ -778,10 +792,10 @@ class CSCommands(commands.Cog):
             )
         
         embed.set_thumbnail(url=gracz['avatar_url'])
-        embed.set_footer(text="Legenda: 🟢 Pro | 🟡 Solidnie | 🔴 Słabo | K/R: Kills per Round")
+        embed.set_footer(text="Legenda: 🟢 WR ≥ 55% | 🟡 WR 45-54% | 🔴 WR < 45% | K/R: Zabójstwa na rundę")
         await msg.edit(content=None, embed=embed)
         
-    @commands.hybrid_command(name="compare", aliases=["porownaj", "c", "1v1", "arena"], description="Arena 1v1 — porównanie formy dwóch graczy")
+    @commands.hybrid_command(name="compare", aliases=["porownaj", "c", "1v1", "arena"], description="Porównanie statystyk dwóch graczy (1v1)")
     async def komenda_compare(self, ctx, argument1: str, argument2: str, argument3: typing.Optional[str] = None):
         await ctx.defer()
         guild_id = ctx.guild.id
@@ -811,7 +825,7 @@ class CSCommands(commands.Cog):
         if not nick1: nick1 = targets[0]; d_name1 = targets[0]
         if not nick2: nick2 = targets[1]; d_name2 = targets[1]
         
-        msg = await ctx.send(f"⚔️ Otwieranie areny... Przygotowuję statystyki dla **{d_name1}** i **{d_name2}**.")
+        msg = await ctx.send(f"⚔️ Porównuję statystyki **{d_name1}** i **{d_name2}**...")
         
         g1 = await get_player_stats(nick1)
         g2 = await get_player_stats(nick2)
@@ -872,8 +886,8 @@ class CSCommands(commands.Cog):
                 return f"{val1} ─ {val2}"
 
         embed = discord.Embed(
-            title=f"⚔️ ARENA: {g1['nick']} vs {g2['nick']}",
-            description=f"Bezpośrednie starcie na podstawie ostatnich **{len(m1)}** meczów.",
+            title=f"⚔️ {g1['nick']} vs {g2['nick']}",
+            description=f"Porównanie formy na podstawie ostatnich **{len(m1)}** meczów:",
             color=get_cfg(guild_id, "main_color", 0x2b2d31)
         )
         
@@ -890,7 +904,7 @@ class CSCommands(commands.Cog):
             f"🏆 **Win Rate**: {get_vals(s1['wr'], s2['wr'], '%', 0)}",
             f"🔫 **K/D Ratio**: {get_vals(s1['kd'], s2['kd'])}",
             f"💥 **Średni ADR**: {get_vals(s1['adr'], s2['adr'], '', 1)}",
-            f"🎯 **Kille/Rundę**: {get_vals(s1['kpr'], s2['kpr'])}",
+            f"🎯 **KPR (Kille/Rundę)**: {get_vals(s1['kpr'], s2['kpr'])}",
             f"🤯 **Headshoty**: {get_vals(s1['hs'], s2['hs'], '%', 0)}"
         ]
         
@@ -900,7 +914,7 @@ class CSCommands(commands.Cog):
             inline=False
         )
         
-        embed.set_footer(text=f"Arena wygenerowana dla {ctx.author.display_name} | Powodzenia!")
+        embed.set_footer(text=f"Porównanie dla {ctx.author.display_name}")
         await msg.edit(content=None, embed=embed)
 
 
@@ -927,7 +941,7 @@ class CSCommands(commands.Cog):
             value=(
                 f"`{ctx.prefix}polacz` • Powiązanie profilu Faceit z kontem Discord\n"
                 f"`{ctx.prefix}odlacz` • Odłączenie konta z ekipy serwera\n"
-                f"`{ctx.prefix}stats` • Pełny paszport statystyk gracza (K/D, ADR, ELO)\n"
+                f"`{ctx.prefix}stats` • Profil i statystyki gracza (K/D, ADR, ELO)\n"
                 f"`{ctx.prefix}elo` • Szybki podgląd punktów ELO i paska do awansu"
             ),
             inline=False
@@ -938,10 +952,10 @@ class CSCommands(commands.Cog):
             value=(
                 f"`{ctx.prefix}last` • Raport z ostatniego meczu (+/- ELO, HLTV 2.0)\n"
                 f"`{ctx.prefix}recent` • Średnie statystyki z ostatnich gier (2-100)\n"
-                f"`{ctx.prefix}wykres` • Wykres liniowy trajektorii punktów ELO\n"
+                f"`{ctx.prefix}wykres` • Wykres historii punktów ELO\n"
                 f"`{ctx.prefix}history` • Ostatnie 5 meczów z wynikami i linkami\n"
                 f"`{ctx.prefix}maps` • Skuteczność i Win Rate na poszczególnych mapach\n"
-                f"`{ctx.prefix}compare` • Arena 1v1 — bezpośrednie porównanie graczy"
+                f"`{ctx.prefix}compare` • Porównanie statystyk dwóch graczy (1v1)"
             ),
             inline=False
         )
@@ -962,7 +976,7 @@ class CSCommands(commands.Cog):
                     f"`{ctx.prefix}config` • Panel konfiguracji bota (prefix, kanały, kolory)\n"
                     f"`{ctx.prefix}sezon` • Zarządzanie sezonami rankingowymi i nagrodami MVP\n"
                     f"`{ctx.prefix}live_setup` • Konfiguracja dedykowanego kanału meczów live\n"
-                    f"`{ctx.prefix}rekordy_setup` • Inicjalizacja kanału Hali Sław z rekordami\n"
+                    f"`{ctx.prefix}rekordy_setup` • Utworzenie kanału Hali Sław z rekordami\n"
                     f"`{ctx.prefix}elo_setup` • Utworzenie kanału głosowego ze średnim ELO\n"
                     f"`{ctx.prefix}faceit_roles_setup` • Utworzenie/podpięcie ról Faceit Level 1-10\n"
                     f"`{ctx.prefix}faceit_roles_sync` • Synchronizacja ról Faceit dla ekipy\n"
@@ -979,7 +993,7 @@ class CSCommands(commands.Cog):
         color = get_cfg(guild_id, "main_color", 0x2b2d31)
         
         embed = discord.Embed(
-            title="👤 Komendy Gracza — Pełny Spis",
+            title="👤 Komendy Gracza",
             description="Większość komend akceptuje nick Faceit lub oznaczenie gracza (`@Gracz`). Jeśli połączyłeś konto (`!polacz`), możesz wpisywać komendy bez argumentów!",
             color=color
         )
@@ -996,11 +1010,11 @@ class CSCommands(commands.Cog):
         embed.add_field(
             name="📈 Statystyki & Forma",
             value=(
-                f"• `{ctx.prefix}stats [nick/ping]` — Pełny profil gracza (ELO, KD, ADR, HS%, WR).\n"
+                f"• `{ctx.prefix}stats [nick/ping]` — Profil gracza (ELO, KD, ADR, HS%, WR).\n"
                 f"• `{ctx.prefix}elo [nick/ping]` — Aktualne punkty ELO, poziom i brakujące punkty do awansu/spadku.\n"
                 f"• `{ctx.prefix}last [nick/ping]` — Szczegółowa karta ostatniego meczu (HLTV 2.0, kille, UD, +/- ELO).\n"
                 f"• `{ctx.prefix}recent [ilość] [nick/ping]` — Podsumowanie formy z ostatnich gier (domyślnie 20, max 100).\n"
-                f"• `{ctx.prefix}wykres [ilość] [nick/ping]` — Wykres liniowy punktów ELO z ostatnich gier (2-100).\n"
+                f"• `{ctx.prefix}wykres [ilość] [nick/ping]` — Wykres historii punktów ELO (2-100 gier).\n"
                 f"• `{ctx.prefix}history [nick/ping]` — Szybka lista 5 ostatnich meczów wraz z linkami.\n"
                 f"• `{ctx.prefix}maps [nick/ping]` — Analiza skuteczności (Win Rate, mecze) na mapach turniejowych."
             ),
@@ -1010,9 +1024,9 @@ class CSCommands(commands.Cog):
         embed.add_field(
             name="⚔️ Rywalizacja & Ekipa",
             value=(
-                f"• `{ctx.prefix}compare [ilość] <gracz1> <gracz2>` — Pojedynek 1v1 dwóch graczy na bazie ostatnich gier.\n"
+                f"• `{ctx.prefix}compare [ilość] <gracz1> <gracz2>` — Porównanie dwóch graczy na bazie ostatnich gier.\n"
                 f"• `{ctx.prefix}top` — Ranking serwerowy ekipy posortowany według ELO.\n"
-                f"• `{ctx.prefix}streaks` — Tablica pass zwycięstw i porażek członków ekipy."
+                f"• `{ctx.prefix}streaks` — Serie zwycięstw i porażek członków ekipy."
             ),
             inline=False
         )
@@ -1076,7 +1090,7 @@ class CSCommands(commands.Cog):
         embed.set_footer(text=f"Szczegóły wybranej komendy: {ctx.prefix}pomoc [nazwa]")
         return embed
 
-    @commands.hybrid_command(name="pomoc", aliases=["komendy", "help"], description="Interaktywne menu pomocy z dokumentacją komend")
+    @commands.hybrid_command(name="pomoc", aliases=["komendy", "help"], description="Lista komend i pomoc bota")
     async def komenda_pomoc(self, ctx, komenda: typing.Optional[str] = None):
         """Dynamiczny i kompletny system pomocy z podziałem na role."""
         command_name = komenda
@@ -1086,7 +1100,8 @@ class CSCommands(commands.Cog):
         if not command_name:
             embed = self.get_main_help_embed(ctx)
             view = HelpView(self, ctx, current_page="main")
-            await ctx.send(embed=embed, view=view)
+            msg = await ctx.send(embed=embed, view=view)
+            view.message = msg
             return
 
         cmd_lower = command_name.lower().strip()
@@ -1094,13 +1109,15 @@ class CSCommands(commands.Cog):
         if cmd_lower in ["admin", "adm", "administrator", "zarzadzanie", "a"]:
             embed = self.get_admin_help_embed(ctx)
             view = HelpView(self, ctx, current_page="admin")
-            await ctx.send(embed=embed, view=view)
+            msg = await ctx.send(embed=embed, view=view)
+            view.message = msg
             return
 
         if cmd_lower in ["user", "gracz", "gracze", "uzytkownik", "u"]:
             embed = self.get_user_help_embed(ctx)
             view = HelpView(self, ctx, current_page="user")
-            await ctx.send(embed=embed, view=view)
+            msg = await ctx.send(embed=embed, view=view)
+            view.message = msg
             return
 
         # 2. SZCZEGÓŁOWY WIDOK DOWOLNEJ KOMENDY
@@ -1130,7 +1147,7 @@ class CSCommands(commands.Cog):
                 "note": "Po odłączeniu bot przestanie uwzględniać Twoje mecze w powiadomieniach i rankingu."
             },
             "stats": {
-                "desc": "Wyświetla kompletny paszport statystyk gracza: aktualne ELO, poziom (z emoji), winrate ogólny, bilans K/D, średnie ADR, aktualną passę (streak), liczbę meczów oraz wskaźnik formy.",
+                "desc": "Wyświetla statystyki gracza: aktualne ELO, poziom, bilans K/D, średnie ADR, aktualną passę (streak), liczbę meczów oraz wskaźnik formy.",
                 "usage": "[nick / @gracz]",
                 "admin": False,
                 "examples": [f"{ctx.prefix}stats", f"{ctx.prefix}stats @Gracz", f"{ctx.prefix}stats m0NESY"],
@@ -1158,7 +1175,7 @@ class CSCommands(commands.Cog):
                 "note": "Możesz podać liczbę meczów w zakresie od 2 do 100."
             },
             "wykres": {
-                "desc": "Generuje przejrzysty wykres liniowy punktów ELO na przestrzeni ostatnich spotkań, obrazujący aktualną tendencję i formę gracza.",
+                "desc": "Generuje wykres punktów ELO na przestrzeni ostatnich spotkań, obrazujący zmiany ELO i formę gracza.",
                 "usage": "[ilość (2-100)] [nick / @gracz]",
                 "admin": False,
                 "examples": [f"{ctx.prefix}wykres", f"{ctx.prefix}wykres 15", f"{ctx.prefix}wykres @Gracz 50"],
@@ -1179,7 +1196,7 @@ class CSCommands(commands.Cog):
                 "note": "Pozwala ocenić najsilniejsze i najsłabsze mapy w puli."
             },
             "compare": {
-                "desc": "Arena 1v1. Bezpośrednie porównanie formy dwóch graczy na bazie ostatnich meczów ze wskazaniem lidera w każdej kategorii statystyk.",
+                "desc": "Bezpośrednie porównanie formy dwóch graczy na bazie ostatnich meczów ze wskazaniem lepszego w każdej kategorii statystyk.",
                 "usage": "[ilość] <gracz1> <gracz2>",
                 "admin": False,
                 "examples": [f"{ctx.prefix}compare @Gracz1 @Gracz2", f"{ctx.prefix}compare 15 Nick1 Nick2"],
@@ -1350,7 +1367,7 @@ class CSCommands(commands.Cog):
         embed.set_footer(text=f"Więcej pomocy: {ctx.prefix}pomoc | {ctx.prefix}pomoc admin | {ctx.prefix}pomoc user")
         await ctx.send(embed=embed)
 
-    @commands.hybrid_command(name="wykres", aliases=["chart", "graph"], description="Wykres liniowy trajektorii punktów ELO")
+    @commands.hybrid_command(name="wykres", aliases=["chart", "graph"], description="Wykres historii punktów ELO")
     async def komenda_wykres(self, ctx, argument1: typing.Optional[str] = None, argument2: typing.Optional[str] = None):
         await ctx.defer()
         guild_id = ctx.guild.id
@@ -1400,6 +1417,7 @@ class CSCommands(commands.Cog):
         embed.set_footer(text="Dane zbierane od momentu aktywacji monitoringu.")
         
         await msg.edit(content=None, embed=embed, attachments=[plik])
+        logger.info(f"Wygenerowano wykres ELO dla {display_name} ({len(historia)} meczów) w gildii {guild_id}")
 
 async def setup(bot):
     await bot.add_cog(CSCommands(bot))

@@ -17,7 +17,8 @@ _curl_session = None
 async def get_session():
     global _session
     if _session is None or _session.closed:
-        _session = aiohttp.ClientSession()
+        timeout = aiohttp.ClientTimeout(total=10.0, connect=3.0)
+        _session = aiohttp.ClientSession(timeout=timeout)
     return _session
 
 async def get_curl_session():
@@ -56,11 +57,11 @@ async def get_faceit_data(endpoint: str, retries: int = 2):
                         if attempt < retries:
                             await asyncio.sleep(1.2 * (attempt + 1))
                             continue
-                        logger.warning(f"⚠️ Faceit API Error (Status 429 - Rate Limit) dla endpointu: {endpoint}")
+                        logger.warning(f"Faceit API rate limit (status 429) on endpoint: {endpoint}")
                         return None
                     elif response.status == 404:
                         return None
-                    logger.warning(f"⚠️ Faceit API Error (Status {response.status}) dla endpointu: {endpoint}")
+                    logger.warning(f"Faceit API error (status {response.status}) on endpoint: {endpoint}")
                     return None
         except aiohttp.ClientError as e:
             if attempt < retries:
@@ -87,10 +88,10 @@ async def get_latest_match_id(player_id: str):
 try:
     from curl_cffi.requests import AsyncSession as CurlAsyncSession
     HAS_CURL_CFFI = True
-    logger.info("✅ [FACEIT API] curl_cffi załadowane pomyślnie (ochrona Cloudflare aktywna)")
+    logger.info("Faceit API: curl_cffi loaded (Cloudflare bypass active)")
 except ImportError as e:
     HAS_CURL_CFFI = False
-    logger.warning(f"⚠️ [FACEIT API] Brak biblioteki curl_cffi ({e}) - zainstaluj 'pip install curl_cffi', aby ominąć blokadę Cloudflare (403) na VPS!")
+    logger.warning(f"Faceit API: curl_cffi unavailable ({e}) - install 'curl_cffi' to bypass Cloudflare protection on VPS")
 
 async def get_player_ongoing_match_id(player_id: str):
     """Sprawdza czy gracz jest w aktywnym meczu (obsługuje endpointy Faceit groupByState oraz Open API)"""
