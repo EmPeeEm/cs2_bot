@@ -24,7 +24,18 @@ SOFTWARE.
 from __future__ import annotations
 
 from typing import Optional, List, TYPE_CHECKING
-from tldextract import extract
+try:
+    from tldextract import extract
+except ImportError:
+    from urllib.parse import urlparse
+    class _FallbackExtract:
+        def __init__(self, uri: str):
+            netloc = urlparse(uri).netloc.split(":")[0]
+            parts = netloc.split(".")
+            self.domain = parts[-2] if len(parts) >= 2 else (parts[0] if parts else "unknown")
+    def extract(uri: str):
+        return _FallbackExtract(uri)
+
 from discord import Member
 
 from .enums import SearchType, TrackRecType
