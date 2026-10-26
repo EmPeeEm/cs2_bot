@@ -4,6 +4,7 @@ services:
     image: ghcr.io/lavalink-devs/lavalink:4
     container_name: cs2bot-lavalink
     restart: unless-stopped
+    user: root
     env_file:
       - path: ../.env
         required: false
