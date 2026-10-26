@@ -67,6 +67,16 @@ Wymagane uprawnienia bota na serwerze:
 * `Manage Channels` (Zarządzanie kanałami — potrzebne do aktualizacji kanału ELO i tworzenia kanałów rekordów)
 * `Send Messages`, `Embed Links`, `Attach Files`
 * `Use Application Commands` (Dostęp do Slash Commands)
+* `Connect`, `Speak`, `Use Voice Activity` (Dostęp do kanałów głosowych dla odtwarzacza muzyki)
+
+### Usługi Pomocnicze Audio (Lavalink v4 i MongoDB)
+Dla modułu muzycznego bot wykorzystuje zewnętrzny serwer **Lavalink v4** oraz bazę **MongoDB**.
+Uruchomienie usług w kontenerach (katalog `cs2_bot/lavalink`):
+```bash
+cd lavalink
+docker compose up -d
+cd ..
+```
 
 ### Hierarchia ról serwerowych
 Rola bota na serwerze Discord musi znajdować się **powyżej** ról `Faceit Level 1` – `Faceit Level 10`. W przeciwnym razie Discord zablokuje próbę nadania lub odebrania roli błędem `discord.Forbidden (error code: 50013)`.

@@ -88,10 +88,26 @@ intents.members = True # Na potrzeby ról i wzmianek członków
 class CSBot(commands.Bot):
     def __init__(self):
         super().__init__(command_prefix=get_prefix, intents=intents, help_command=None)
+        self.ipc_client = None
 
     async def setup_hook(self):
         logger.info("Uruchamianie systemów bota...")
         init_db()
+
+        # Inicjalizacja modułu muzycznego (Vocard / Voicelink)
+        try:
+            import function as func
+            from voicelink import Config, MongoDBHandler, LangHandler, IPCClient
+            bot_config = Config(func.open_json("settings.json"))
+            LangHandler.init()
+            await MongoDBHandler.init(bot_config.mongodb_url, bot_config.mongodb_name)
+            if bot_config.ipc_client.get("enable", False):
+                self.ipc_client = IPCClient(self, **bot_config.ipc_client)
+            else:
+                self.ipc_client = None
+            logger.info("Zainicjalizowano moduł muzyczny Vocard (Voicelink & LangHandler)")
+        except Exception as e:
+            logger.warning(f"Ostrzeżenie przy inicjalizacji modułu muzycznego: {e}")
         for filename in os.listdir('./cogs'):
             if filename.endswith('.py'):
                 try:
@@ -177,6 +193,19 @@ async def on_command_error(ctx: commands.Context, error: Exception):
         await ctx.send(f"⏳ Poczekaj jeszcze {error.retry_after:.1f}s przed ponownym użyciem tej komendy.")
         return
 
+    # Błędy modułu muzycznego (Voicelink)
+    original = getattr(error, "original", error)
+    try:
+        import voicelink
+        if isinstance(original, voicelink.exceptions.NoNodesAvailable):
+            await ctx.send("⚠️ Węzeł muzyczny (Lavalink) nie jest jeszcze gotowy lub trwa ponowne łączenie. Spróbuj ponownie za chwilę!")
+            return
+        if isinstance(original, voicelink.exceptions.VoicelinkException):
+            await ctx.send(f"⚠️ {original}")
+            return
+    except ImportError:
+        pass
+
     # Pozostałe błędy
     logger.error(f"Nieobsłużony błąd w komendzie '{ctx.command}': {error}", exc_info=error)
     try:
@@ -187,7 +216,20 @@ async def on_command_error(ctx: commands.Context, error: Exception):
 @bot.tree.error
 async def on_app_command_error(interaction: discord.Interaction, error: discord.app_commands.AppCommandError):
     """Obsługa błędów komend aplikacji (Slash Commands)."""
-    if isinstance(error, discord.app_commands.MissingPermissions):
+    original = getattr(error, "original", error)
+    try:
+        import voicelink
+        is_no_node = isinstance(original, voicelink.exceptions.NoNodesAvailable)
+        is_voicelink_err = isinstance(original, voicelink.exceptions.VoicelinkException)
+    except ImportError:
+        is_no_node = False
+        is_voicelink_err = False
+
+    if is_no_node:
+        msg = "⚠️ Węzeł muzyczny (Lavalink) nie jest jeszcze gotowy lub trwa ponowne łączenie. Spróbuj ponownie za chwilę!"
+    elif is_voicelink_err:
+        msg = f"⚠️ {original}"
+    elif isinstance(error, discord.app_commands.MissingPermissions):
         msg = "❌ Nie posiadasz uprawnień administratora do wykonania tej operacji."
     elif isinstance(error, discord.app_commands.BotMissingPermissions):
         msg = f"❌ Bot nie posiada uprawnień do wykonania tej operacji ({', '.join(error.missing_permissions)})."
@@ -209,6 +251,28 @@ async def on_app_command_error(interaction: discord.Interaction, error: discord.
 async def on_message(message):
     if message.author.bot:
         return
+
+    # Obsługa dedykowanego kanału żądań muzycznych
+    try:
+        if message.guild:
+            from voicelink import MongoDBHandler
+            settings = MongoDBHandler.get_cached_settings(message.guild.id)
+            if settings and (request_channel := settings.get("music_request_channel")):
+                if message.channel.id == request_channel.get("text_channel_id"):
+                    ctx = await bot.get_context(message)
+                    if not ctx.prefix:
+                        play_cmd = bot.get_command("play")
+                        if play_cmd:
+                            try:
+                                await ctx.invoke(play_cmd, query=message.content)
+                            finally:
+                                try:
+                                    await message.delete()
+                                except Exception:
+                                    pass
+                            return
+    except Exception as e:
+        logger.debug(f"Pominięto przetwarzanie auto-request w kanale: {e}")
     
     # Debug log dla tradycyjnych komend prefiksowych
     pfx_list = await get_prefix(bot, message)

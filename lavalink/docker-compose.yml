@@ -1,0 +1,38 @@
+services:
+  # Serwer audio Lavalink v4
+  lavalink:
+    image: ghcr.io/lavalink-devs/lavalink:4
+    container_name: cs2bot-lavalink
+    restart: unless-stopped
+    env_file:
+      - path: ../.env
+        required: false
+    environment:
+      - _JAVA_OPTIONS=-Xmx1G
+      - YOUTUBE_OAUTH_REFRESH_TOKEN=${YOUTUBE_OAUTH_REFRESH_TOKEN:-}
+    volumes:
+      - ./application.yml:/opt/Lavalink/application.yml:ro
+      - ./plugins:/opt/Lavalink/plugins
+    ports:
+      - "127.0.0.1:2333:2333"
+
+  # Asynchroniczna baza danych dla playlist i ustawień muzycznych Vocard
+  mongo:
+    image: mongo:7.0
+    container_name: cs2bot-mongo
+    restart: unless-stopped
+    volumes:
+      - ../data/mongo:/data/db
+    ports:
+      - "127.0.0.1:27017:27017"
+
+  # Serwis deszyfrujący sygnatury YouTube Player Cipher
+  yt-cipher:
+    image: ghcr.io/kikkia/yt-cipher:master
+    container_name: cs2bot-yt-cipher
+    restart: unless-stopped
+    environment:
+      - PORT=8001
+      - OVERRIDE_SCRIPT_VARIANT=IAS
+    ports:
+      - "127.0.0.1:8001:8001"

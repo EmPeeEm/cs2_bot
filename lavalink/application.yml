@@ -1,0 +1,104 @@
+server:
+  port: 2333
+  address: 0.0.0.0
+
+lavalink:
+  plugins:
+    - dependency: "dev.lavalink.youtube:youtube-plugin:2be8e542d3f6f178e048dca565892684c2e40177"
+      repository: "https://maven.lavalink.dev/snapshots"
+    - dependency: "com.github.topi314.lavasrc:lavasrc-plugin:4.8.3"
+      repository: "https://maven.lavalink.dev/releases"
+  server:
+    password: "youshallnotpass"
+    sources:
+      youtube: false # Wyłączone natywne na rzecz nowoczesnego youtube-plugin
+      bandcamp: true
+      soundcloud: true
+      twitch: true
+      vimeo: true
+      http: true
+      local: false
+    filters:
+      volume: true
+      equalizer: true
+      karaoke: true
+      timescale: true
+      tremolo: true
+      vibrato: true
+      distortion: true
+      rotation: true
+      channelMix: true
+      lowPass: true
+    bufferDurationMs: 400
+    frameBufferDurationMs: 5000
+    opusEncodingQuality: 10
+    resamplingQuality: HIGH
+    trackStuckThresholdMs: 10000
+    useSeekGhosting: true
+    playerUpdateInterval: 5
+    youtubeSearchEnabled: true
+    soundcloudSearchEnabled: true
+
+plugins:
+  youtube:
+    enabled: true
+    oauth:
+      enabled: true
+      refreshToken: "${YOUTUBE_OAUTH_REFRESH_TOKEN:}"
+      skipInitialization: true
+    clients:
+      - MUSIC
+      - WEB
+      - ANDROID_VR
+      - IOS
+      - MWEB
+      - WEBEMBEDDED
+    clientOptions:
+      WEB:
+        playback: false
+        videoLoading: true
+        playlistLoading: true
+        searching: true
+      ANDROID_VR:
+        playback: true
+        videoLoading: false
+        playlistLoading: false
+        searching: false
+      IOS:
+        playback: true
+        videoLoading: true
+        playlistLoading: false
+        searching: false
+      MWEB:
+        playback: true
+        videoLoading: false
+        playlistLoading: false
+        searching: false
+      WEBEMBEDDED:
+        playback: true
+        videoLoading: false
+        playlistLoading: false
+        searching: false
+    remoteCipher:
+      url: "http://cs2bot-yt-cipher:8001"
+  lavasrc:
+    providers:
+      - "ytmsearch:\"%ISRC%\""
+      - "ytmsearch:%QUERY%"
+      - "ytsearch:\"%ISRC%\""
+      - "ytsearch:%QUERY%"
+    sources:
+      spotify: true
+      applemusic: false
+      deezer: false
+    spotify:
+      clientId: "${SPOTIFY_CLIENT_ID:}"
+      clientSecret: "${SPOTIFY_CLIENT_SECRET:}"
+      countryCode: "PL"
+
+logging:
+  file:
+    path: ./logs/lavalink.log
+  level:
+    root: INFO
+    lavalink: INFO

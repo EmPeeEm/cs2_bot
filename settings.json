@@ -1,0 +1,166 @@
+{
+    "token": "",
+    "client_id": 0,
+    "genius_token": "",
+    "mongodb_url": "mongodb://127.0.0.1:27017",
+    "mongodb_name": "cs2_music",
+    "nodes": {
+        "DEFAULT": {
+            "host": "127.0.0.1",
+            "port": 2333,
+            "password": "youshallnotpass",
+            "secure": false,
+            "identifier": "DEFAULT"
+        }
+    },
+    "prefix": "!",
+    "activity": [
+        {"type": "listening", "name": "/play | CS2 & Music", "status": "online"}
+    ],
+    "logging": {
+        "file": {
+            "path": "./data/logs",
+            "enable": true
+        },
+        "level": {
+            "discord": "WARNING",
+            "vocard": "INFO",
+            "ipc_client": "WARNING"
+        },
+        "max_history": 14
+    },
+    "bot_access_user": [],
+    "embed_color": "0x5865F2",
+    "default_max_queue": 1000,
+    "default_search_platform": "youtubemusic",
+    "lyrics_platform": "lrclib",
+    "ipc_client": {
+        "host": "127.0.0.1",
+        "port": 8000,
+        "password": "password",
+        "secure": false,
+        "enable": false
+    },
+    "timer_settings": {
+        "bot_activity_update": 600,
+        "inactive_player_cleanup": 600,
+        "cache_cleanup": 43200
+    },
+    "playlist_settings": {
+        "max_playlists": 10,
+        "max_tracks_per_playlist": 500,
+        "default_playlist_name": "Ulubione"
+    },
+    "sources_settings": {
+        "youtube": {
+            "emoji": "▶️",
+            "color": "0xFF0000"
+        },
+        "youtubemusic": {
+            "emoji": "🎵",
+            "color": "0xFF0000"
+        },
+        "spotify": {
+            "emoji": "🟢",
+            "color": "0x1DB954"
+        },
+        "soundcloud": {
+            "emoji": "🟠",
+            "color": "0xFF7700"
+        },
+        "twitch": {
+            "emoji": "🟣",
+            "color": "0x9B4AFF"
+        },
+        "bandcamp": {
+            "emoji": "🔵",
+            "color": "0x6F98A7"
+        },
+        "vimeo": {
+            "emoji": "🔷",
+            "color": "0x1ABCEA"
+        },
+        "applemusic": {
+            "emoji": "🍎",
+            "color": "0xE298C4"
+        },
+        "others": {
+            "emoji": "🔗",
+            "color": "0xb3b3b3"
+        }
+    },
+    "default_controller": {
+        "embeds": {
+            "active": {
+                "description": "**Teraz gramy: ```[@@track_name@@]```\nLink: [Kliknij tutaj](@@track_url@@) | Zamówił: @@track_requester_mention@@ | DJ: @@dj@@**",
+                "footer": {
+                    "text": "W kolejce: @@queue_length@@ | Czas: @@track_duration@@ | Głośność: @@volume@@% {{loop_mode != 'Off' ?? | Powtarzanie: @@loop_mode@@}}"
+                },
+                "image": "@@track_thumbnail@@",
+                "author": {
+                    "name": "Odtwarzacz Muzyki | @@channel_name@@",
+                    "icon_url": "@@bot_icon@@"
+                },
+                "color": "@@track_color@@"
+            },
+            "inactive": {
+                "title": {
+                    "name": "Brak aktualnie odtwarzanych utworów"
+                },
+                "description": "Wpisz `/play <nazwa lub link>`, aby dodać utwór do kolejki!",
+                "image": "",
+                "color": "@@default_embed_color@@"
+            }
+        },
+        "buttons": [
+            {
+                "back": {
+                    "emoji": "⏮️",
+                    "label": "Poprzedni"
+                },
+                "play-pause": {
+                    "states": {
+                        "pause": {
+                            "emoji": "⏸️",
+                            "label": "Pauza"
+                        },
+                        "resume": {
+                            "emoji": "▶️",
+                            "label": "Wznów"
+                        }
+                    }
+                },
+                "skip": {
+                    "emoji": "⏭️",
+                    "label": "Dalej"
+                },
+                "stop": {
+                    "emoji": "⏹️",
+                    "label": "Zatrzymaj",
+                    "style": "red"
+                },
+                "add-fav": {
+                    "emoji": "❤️",
+                    "label": "Ulubione"
+                }
+            },
+            {
+                "tracks": {
+                    "label": "Wybierz utwór z kolejki...",
+                    "max_options": 10
+                }
+            }
+        ]
+    },
+    "default_voice_status_template": "{{@@track_name@@ != 'None' ?? @@track_source_emoji@@ Gra: @@track_name@@ // Czekam na piosenki}}",
+    "cooldowns": {
+        "connect": [2, 30],
+        "playlist view": [1, 30]
+    },
+    "aliases": {
+        "connect": ["join", "dolacz"],
+        "leave": ["stop", "wyjdz", "dc"],
+        "play": ["p", "graj"],
+        "view": ["v", "kolejka"]
+    }
+}
