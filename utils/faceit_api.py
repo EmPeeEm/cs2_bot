@@ -383,81 +383,84 @@ async def get_map_segments(player_id: str):
     if not dane: return []
     return dane.get("segments", [])
 
-MAP_ICONS_BASE_URL = "https://raw.githubusercontent.com/vgalisson/csgo-map-icons/master/512x512"
+MAP_ICONS_BASE_URL = "https://raw.githubusercontent.com/MurkyYT/cs2-map-icons/main/images"
 
-# Mapowanie nazw map (zwykłe nazwy, kody de_/cs_/ar_ oraz małe litery) na ikony 512x512 z repozytorium vgalisson/csgo-map-icons
-MAP_IMAGES = {
-    # Podstawowe mapy turniejowe CS2 / CS:GO
-    "Mirage": f"{MAP_ICONS_BASE_URL}/map_icon_de_mirage.png",
-    "Inferno": f"{MAP_ICONS_BASE_URL}/map_icon_de_inferno.png",
-    "Dust2": f"{MAP_ICONS_BASE_URL}/map_icon_de_dust2.png",
-    "Nuke": f"{MAP_ICONS_BASE_URL}/map_icon_de_nuke.png",
-    "Ancient": f"{MAP_ICONS_BASE_URL}/map_icon_de_ancient.png",
-    "Anubis": f"{MAP_ICONS_BASE_URL}/map_icon_de_anubis.png",
-    "Vertigo": f"{MAP_ICONS_BASE_URL}/map_icon_de_vertigo.png",
-    "Overpass": f"{MAP_ICONS_BASE_URL}/map_icon_de_overpass.png",
-    "Train": f"{MAP_ICONS_BASE_URL}/map_icon_de_train.png",
-    "Cache": f"{MAP_ICONS_BASE_URL}/map_icon_de_cache.png",
-    "Cobblestone": f"{MAP_ICONS_BASE_URL}/map_icon_de_cbble.png",
-    "Cbble": f"{MAP_ICONS_BASE_URL}/map_icon_de_cbble.png",
-    
-    # Dodatkowe mapy turniejowe i klasyczne
-    "Dust": f"{MAP_ICONS_BASE_URL}/map_icon_de_dust.png",
-    "Aztec": f"{MAP_ICONS_BASE_URL}/map_icon_de_aztec.png",
-    "Canals": f"{MAP_ICONS_BASE_URL}/map_icon_de_canals.png",
-    "Office": f"{MAP_ICONS_BASE_URL}/map_icon_cs_office.png",
-    "Italy": f"{MAP_ICONS_BASE_URL}/map_icon_cs_italy.png",
-    "Agency": f"{MAP_ICONS_BASE_URL}/map_icon_cs_agency.png",
-    "Assault": f"{MAP_ICONS_BASE_URL}/map_icon_cs_assault.png",
-    "Militia": f"{MAP_ICONS_BASE_URL}/map_icon_cs_militia.png",
-    "Insertion": f"{MAP_ICONS_BASE_URL}/map_icon_cs_insertion.png",
-    "Workout": f"{MAP_ICONS_BASE_URL}/map_icon_cs_workout.png",
-    "Abbey": f"{MAP_ICONS_BASE_URL}/map_icon_de_abbey.png",
-    "Austria": f"{MAP_ICONS_BASE_URL}/map_icon_de_austria.png",
-    "Bank": f"{MAP_ICONS_BASE_URL}/map_icon_de_bank.png",
-    "Biome": f"{MAP_ICONS_BASE_URL}/map_icon_de_biome.png",
-    "Breach": f"{MAP_ICONS_BASE_URL}/map_icon_de_breach.png",
-    "Chlorine": f"{MAP_ICONS_BASE_URL}/map_icon_de_chlorine.png",
-    "Lake": f"{MAP_ICONS_BASE_URL}/map_icon_de_lake.png",
-    "Mutiny": f"{MAP_ICONS_BASE_URL}/map_icon_de_mutiny.png",
-    "Ruby": f"{MAP_ICONS_BASE_URL}/map_icon_de_ruby.png",
-    "Safehouse": f"{MAP_ICONS_BASE_URL}/map_icon_de_safehouse.png",
-    "Seaside": f"{MAP_ICONS_BASE_URL}/map_icon_de_seaside.png",
-    "Shipped": f"{MAP_ICONS_BASE_URL}/map_icon_de_shipped.png",
-    "Shortdust": f"{MAP_ICONS_BASE_URL}/map_icon_de_shortdust.png",
-    "Shortnuke": f"{MAP_ICONS_BASE_URL}/map_icon_de_shortnuke.png",
-    "Stmarc": f"{MAP_ICONS_BASE_URL}/map_icon_de_stmarc.png",
-    "Studio": f"{MAP_ICONS_BASE_URL}/map_icon_de_studio.png",
-    "Subzero": f"{MAP_ICONS_BASE_URL}/map_icon_de_subzero.png",
-    "Sugarcane": f"{MAP_ICONS_BASE_URL}/map_icon_de_sugarcane.png",
-    "Swamp": f"{MAP_ICONS_BASE_URL}/map_icon_de_swamp.png",
-    "Zoo": f"{MAP_ICONS_BASE_URL}/map_icon_de_zoo.png",
-    "Baggage": f"{MAP_ICONS_BASE_URL}/map_icon_ar_baggage.png",
-    "Dizzy": f"{MAP_ICONS_BASE_URL}/map_icon_ar_dizzy.png",
-    "Lunacy": f"{MAP_ICONS_BASE_URL}/map_icon_ar_lunacy.png",
-    "Monastery": f"{MAP_ICONS_BASE_URL}/map_icon_ar_monastery.png",
-    "Shoots": f"{MAP_ICONS_BASE_URL}/map_icon_ar_shoots.png",
-    "Blacksite": f"{MAP_ICONS_BASE_URL}/map_icon_dz_blacksite.png",
-    "Sirocco": f"{MAP_ICONS_BASE_URL}/map_icon_dz_sirocco.png",
-    "Rialto": f"{MAP_ICONS_BASE_URL}/map_icon_gd_rialto.png",
-}
+# Baza map CS2 z repozytorium MurkyYT/cs2-map-icons (kod mapy, nazwa wyświetlana)
+_CS2_MAP_DEFINITIONS = [
+    ("ar_baggage", "Baggage"),
+    ("ar_pool_day", "Pool Day"),
+    ("ar_shoots", "Shoots"),
+    ("ar_shoots_night", "Shoots Night"),
+    ("cs_agency", "Agency"),
+    ("cs_alpine", "Alpine"),
+    ("cs_italy", "Italy"),
+    ("cs_office", "Office"),
+    ("cs_shelter", "Shelter"),
+    ("de_ancient", "Ancient"),
+    ("de_ancient_night", "Ancient Night"),
+    ("de_anubis", "Anubis"),
+    ("de_assembly", "Assembly"),
+    ("de_basalt", "Basalt"),
+    ("de_boulder", "Boulder"),
+    ("de_brewery", "Brewery"),
+    ("de_cache", "Cache"),
+    ("de_canals", "Canals"),
+    ("de_cbble", "Cobblestone"),
+    ("de_debris", "Debris"),
+    ("de_dogtown", "Dogtown"),
+    ("de_dust", "Dust"),
+    ("de_dust2", "Dust2"),
+    ("de_edin", "Edin"),
+    ("de_eldorado", "El Dorado"),
+    ("de_fachwerk", "Fachwerk"),
+    ("de_golden", "Golden"),
+    ("de_grail", "Grail"),
+    ("de_inferno", "Inferno"),
+    ("de_jura", "Jura"),
+    ("de_lake", "Lake"),
+    ("de_memento", "Memento"),
+    ("de_mills", "Mills"),
+    ("de_mirage", "Mirage"),
+    ("de_nuke", "Nuke"),
+    ("de_overpass", "Overpass"),
+    ("de_palacio", "Palacio"),
+    ("de_palais", "Palais"),
+    ("de_poseidon", "Poseidon"),
+    ("de_rooftop", "Rooftop"),
+    ("de_sanctum", "Sanctum"),
+    ("de_stronghold", "Stronghold"),
+    ("de_sugarcane", "Sugarcane"),
+    ("de_thera", "Thera"),
+    ("de_train", "Train"),
+    ("de_transit", "Transit"),
+    ("de_vertigo", "Vertigo"),
+    ("de_warden", "Warden"),
+    ("de_whistle", "Whistle"),
+    ("lobby_mapveto", "Premier"),
+    ("rush_001", "Complex"),
+]
 
-# Rejestracja małych liter oraz wariantów prefiksowych (de_, cs_, ar_, dz_, gd_)
+MAP_IMAGES = {}
+for _code, _disp in _CS2_MAP_DEFINITIONS:
+    _url = f"{MAP_ICONS_BASE_URL}/{_code}.png"
+    MAP_IMAGES[_code] = _url
+    MAP_IMAGES[_disp] = _url
+    if _code == "de_dust2":
+        MAP_IMAGES["Dust II"] = _url
+    elif _code == "de_cbble":
+        MAP_IMAGES["Cbble"] = _url
+    elif _code == "ar_pool_day":
+        MAP_IMAGES["Poolday"] = _url
+    elif _code == "de_eldorado":
+        MAP_IMAGES["Eldorado"] = _url
+
+# Rejestracja małych liter oraz wariantów bez spacji dla elastycznego dopasowywania
 for _k, _url in list(MAP_IMAGES.items()):
     MAP_IMAGES[_k.lower()] = _url
-    if not any(_k.lower().startswith(p) for p in ("de_", "cs_", "ar_", "dz_", "gd_")):
-        MAP_IMAGES[f"de_{_k.lower()}"] = _url
-        if _k in ("Office", "Italy", "Agency", "Assault", "Militia", "Insertion", "Workout"):
-            MAP_IMAGES[f"cs_{_k.lower()}"] = _url
-        elif _k in ("Baggage", "Dizzy", "Lunacy", "Monastery", "Shoots"):
-            MAP_IMAGES[f"ar_{_k.lower()}"] = _url
-        elif _k in ("Blacksite", "Sirocco"):
-            MAP_IMAGES[f"dz_{_k.lower()}"] = _url
-        elif _k == "Rialto":
-            MAP_IMAGES[f"gd_{_k.lower()}"] = _url
+    MAP_IMAGES[_k.lower().replace(" ", "")] = _url
 
 def get_map_icon(map_name: str | None) -> str | None:
-    """Zwraca bezpośredni URL ikony mapy (512x512) z repozytorium vgalisson/csgo-map-icons"""
+    """Zwraca bezpośredni URL ikony mapy z repozytorium MurkyYT/cs2-map-icons"""
     if not map_name:
         return None
     if map_name in MAP_IMAGES:
@@ -468,10 +471,10 @@ def get_map_icon(map_name: str | None) -> str | None:
     lower = clean.lower()
     if lower in MAP_IMAGES:
         return MAP_IMAGES[lower]
-    if f"de_{lower}" in MAP_IMAGES:
-        return MAP_IMAGES[f"de_{lower}"]
-    if f"cs_{lower}" in MAP_IMAGES:
-        return MAP_IMAGES[f"cs_{lower}"]
+    lower_normalized = lower.replace(" ", "").replace("_", "")
+    for k, v in MAP_IMAGES.items():
+        if k.replace(" ", "").replace("_", "") == lower_normalized:
+            return v
     for prefix in ("de_", "cs_", "ar_", "dz_", "gd_"):
         if lower.startswith(prefix):
             without = lower[len(prefix):]
