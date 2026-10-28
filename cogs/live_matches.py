@@ -194,10 +194,6 @@ class LiveMatchesCog(commands.Cog):
         status_text = STATUS_LABELS.get(status, f"Status: {status}")
         mapa = details.get("mapa", "W trakcie wyboru")
         
-        # Gracze z naszego serwera w tym meczu
-        our_mentions = [f"<@{d_id}>" for d_id, p_id in data.get("our_players", [])]
-        our_str = " ".join(our_mentions) if our_mentions else "Gracze ekipy"
-
         # Drużyny i składy
         teams = details.get("teams", {})
         f1 = teams.get("faction1", {})
@@ -208,6 +204,37 @@ class LiveMatchesCog(commands.Cog):
         # Sprawdzamy, w której drużynie grają nasi gracze
         f1_our_count = sum(1 for p in f1_roster if any(e_pid == p.get("player_id") for e_pid in ekipa.values()))
         f2_our_count = sum(1 for p in f2_roster if any(e_pid == p.get("player_id") for e_pid in ekipa.values()))
+
+        # Gracze z naszego serwera w tym meczu (wykrywanie czy grają razem w party lub przeciwko sobie)
+        parties_data = details.get("parties", {})
+        player_party = parties_data.get("player_party", {})
+        our_player_list = data.get("our_players", [])
+        
+        f1_pids = {p.get("player_id") for p in f1_roster}
+        f2_pids = {p.get("player_id") for p in f2_roster}
+        f1_our = [d_id for d_id, p_id in our_player_list if p_id in f1_pids]
+        f2_our = [d_id for d_id, p_id in our_player_list if p_id in f2_pids]
+
+        if not our_player_list:
+            our_str = "Gracze ekipy"
+        elif f1_our and f2_our:
+            # Pojedynek wewnętrzny między członkami ekipy
+            f1_mentions = " ".join([f"<@{d}>" for d in f1_our])
+            f2_mentions = " ".join([f"<@{d}>" for d in f2_our])
+            our_str = f"{f1_mentions} ⚔️ {f2_mentions} *(pojedynek klubowy)*"
+        elif len(our_player_list) > 1:
+            # Wszyscy nasi gracze są w tej samej drużynie
+            our_party_ids = {player_party.get(p_id) for _, p_id in our_player_list if player_party.get(p_id)}
+            if len(our_party_ids) == 1:
+                cnt = len(our_player_list)
+                pname = {2: "Duo", 3: "Trio", 4: "4-Stack", 5: "5-Stack"}.get(cnt, f"Party ({cnt})")
+                mentions_str = " ".join([f"<@{d}>" for d, _ in our_player_list])
+                our_str = f"{mentions_str} *(🤝 wspólne {pname})*"
+            else:
+                mentions_str = " ".join([f"<@{d}>" for d, _ in our_player_list])
+                our_str = f"{mentions_str} *(w jednej drużynie)*"
+        else:
+            our_str = f"<@{our_player_list[0][0]}>"
 
         score = details.get("score", {})
         s1 = score.get("faction1", 0)
@@ -232,18 +259,57 @@ class LiveMatchesCog(commands.Cog):
             half_str = "Veto / Łączenie z serwerem"
 
         def format_roster(roster):
-            formatted = []
+            if not roster:
+                return "*Brak danych o składzie*"
+
+            # 1. Zliczanie graczy z danym party w obrębie tego składu
+            party_counts = {}
+            for p in roster[:5]:
+                p_party = p.get("party_id")
+                if p_party:
+                    party_counts[p_party] = party_counts.get(p_party, 0) + 1
+
+            # 2. Formatowanie graczy i grupowanie (premade vs solo)
+            party_groups = {}  # party_id -> list of formatted player strings
+            solo_players = []
+            all_formatted = []
+
             for p in roster[:5]:
                 p_id = p.get("player_id")
-                nick = str(p.get("nickname") or p.get("game_player_name") or "Gracz")[:20]
+                nick = str(p.get("nickname") or p.get("game_player_name") or "Gracz")[:18]
                 lvl = str(p.get("game_skill_level", ""))
                 emoji = level_emojis.get(lvl, level_default)
                 is_our = any(e_pid == p_id for e_pid in ekipa.values())
-                if is_our:
-                    formatted.append(f"{emoji} **{nick}**")
+                p_str = f"{emoji} **{nick}**" if is_our else f"{emoji} {nick}"
+                all_formatted.append(p_str)
+
+                p_party = p.get("party_id")
+                if p_party and party_counts.get(p_party, 0) >= 2:
+                    if p_party not in party_groups:
+                        party_groups[p_party] = []
+                    party_groups[p_party].append(p_str)
                 else:
-                    formatted.append(f"{emoji} {nick}")
-            return " • ".join(formatted) if formatted else "*Brak danych o składzie*"
+                    solo_players.append(p_str)
+
+            # 3. Jeśli brak wykrytych premade (wszyscy solo lub brak danych o party)
+            if not party_groups:
+                return " • ".join(all_formatted)
+
+            # 4. Jeśli cała piątka gra w jednym premade (5-Stack)
+            if len(party_groups) == 1 and len(next(iter(party_groups.values()))) == len(roster[:5]):
+                return f"🔥 **5-Stack:** " + " • ".join(next(iter(party_groups.values())))
+
+            # 5. Podział na linie premades i solo
+            party_names = {2: "Duo", 3: "Trio", 4: "4-Stack", 5: "5-Stack"}
+            lines = []
+            for p_party, members in party_groups.items():
+                pname = party_names.get(len(members), f"Premade ({len(members)})")
+                lines.append(f"👥 **{pname}:** " + " • ".join(members))
+
+            if solo_players:
+                lines.append(f"👤 **Solo:** " + " • ".join(solo_players))
+
+            return "\n".join(lines)
 
         # Logika przypisania "Nasi" vs "Przeciwnicy" do wyeksponowania wyniku
         embed_color = 0xe74c3c

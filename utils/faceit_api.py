@@ -482,8 +482,115 @@ def get_map_icon(map_name: str | None) -> str | None:
                 return MAP_IMAGES[without]
     return None
 
+_match_parties_cache = {}
+MATCH_PARTIES_CACHE_TTL = 7200  # 2 godziny cache dla meczu
+
+async def get_match_parties(match_id: str) -> dict:
+    """
+    Pobiera informacje o grupach/party graczy (kto z kim gra w premade) z wewnętrznego API Faceit v2.
+    Zwraca słownik:
+    {
+        "player_party": {player_id: party_id, ...},
+        "party_members": {party_id: [player_id, ...], ...},
+        "premades": {party_id: [player_id, ...], ...}  # grupy o wielkości >= 2
+    }
+    Wyniki są cachowane w pamięci podręcznej per match_id.
+    """
+    global _curl_session, _match_parties_cache
+    now = time.time()
+    
+    if match_id in _match_parties_cache:
+        cached, ts = _match_parties_cache[match_id]
+        if now - ts < MATCH_PARTIES_CACHE_TTL:
+            return cached
+
+    url = f"https://api.faceit.com/match/v2/match/{match_id}"
+    headers = {
+        "Accept": "application/json, text/plain, */*",
+        "Referer": "https://www.faceit.com/",
+        "Origin": "https://www.faceit.com",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    }
+
+    payload = None
+
+    # 1. Próba przez curl_cffi (omija ewentualne Cloudflare na VPS)
+    if HAS_CURL_CFFI:
+        try:
+            curl_session = await get_curl_session()
+            if curl_session:
+                resp = await curl_session.get(url, headers={"Referer": "https://www.faceit.com/", "Origin": "https://www.faceit.com"}, timeout=5)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    payload = data.get("payload", {})
+        except Exception as e:
+            _curl_session = None
+            logger.debug(f"[PARTIES] Błąd curl_cffi dla meczu {match_id}: {e}")
+
+    # 2. Fallback przez standardowe aiohttp
+    if payload is None:
+        try:
+            session = await get_session()
+            async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    payload = data.get("payload", {})
+        except Exception as e:
+            logger.debug(f"[PARTIES] Błąd aiohttp dla meczu {match_id}: {e}")
+
+    result = {
+        "player_party": {},
+        "party_members": {},
+        "premades": {}
+    }
+
+    if payload:
+        player_party = {}
+        party_members = {}
+
+        # 1. Z payload.parties
+        for p in payload.get("parties", []):
+            party_id = p.get("partyId")
+            users = p.get("users", [])
+            if party_id and users:
+                party_members[party_id] = list(users)
+                for u in users:
+                    player_party[u] = party_id
+
+        # 2. Uzupełnienie z rosterów drużyn w v2
+        teams = payload.get("teams", {})
+        for fk in ["faction1", "faction2"]:
+            team = teams.get(fk, {})
+            for p in team.get("roster", []):
+                p_id = p.get("id")
+                p_party = p.get("partyId")
+                if p_id and p_party:
+                    player_party[p_id] = p_party
+                    if p_party not in party_members:
+                        party_members[p_party] = []
+                    if p_id not in party_members[p_party]:
+                        party_members[p_party].append(p_id)
+
+        premades = {pid: mems for pid, mems in party_members.items() if len(mems) > 1}
+        result = {
+            "player_party": player_party,
+            "party_members": party_members,
+            "premades": premades
+        }
+        
+        # Czyszczenie zbyt starego cache przy wzroście
+        if len(_match_parties_cache) > 200:
+            _match_parties_cache = {
+                m: (val, t) for m, (val, t) in _match_parties_cache.items()
+                if now - t < MATCH_PARTIES_CACHE_TTL
+            }
+        _match_parties_cache[match_id] = (result, now)
+        return result
+
+    return result
+
 async def get_match_details(match_id: str):
-    """Pobiera pełne szczegóły meczu (status, mapa, drużyny, wynik, ikona mapy, demo)"""
+    """Pobiera pełne szczegóły meczu (status, mapa, drużyny, wynik, ikona mapy, demo, składy party)"""
     dane = await get_faceit_data(f"matches/{match_id}")
     if not dane: return None
     
@@ -494,9 +601,25 @@ async def get_match_details(match_id: str):
     mapa = raw_map.replace("de_", "").title() if raw_map.startswith("de_") else raw_map
     if mapa.lower() == "dust2": mapa = "Dust2"
     
+    # Pobieranie party / premade graczy
+    parties = await get_match_parties(match_id)
+    player_party = parties.get("player_party", {})
+    
     teams = dane.get("teams", {})
     faction1 = teams.get("faction1", {})
     faction2 = teams.get("faction2", {})
+    
+    f1_roster = []
+    for p in faction1.get("roster", []):
+        p_dict = dict(p)
+        p_dict["party_id"] = player_party.get(p.get("player_id"))
+        f1_roster.append(p_dict)
+
+    f2_roster = []
+    for p in faction2.get("roster", []):
+        p_dict = dict(p)
+        p_dict["party_id"] = player_party.get(p.get("player_id"))
+        f2_roster.append(p_dict)
     
     # Wynik
     results = dane.get("results", {})
@@ -521,18 +644,19 @@ async def get_match_details(match_id: str):
         "configured_at": dane.get("configured_at"),
         "started_at": dane.get("started_at"),
         "finished_at": dane.get("finished_at"),
+        "parties": parties,
         "teams": {
             "faction1": {
                 "name": faction1.get("name", "Team 1"),
                 "leader": faction1.get("leader"),
                 "stats": faction1.get("stats", {}),
-                "roster": faction1.get("roster", []),
+                "roster": f1_roster,
             },
             "faction2": {
                 "name": faction2.get("name", "Team 2"),
                 "leader": faction2.get("leader"),
                 "stats": faction2.get("stats", {}),
-                "roster": faction2.get("roster", []),
+                "roster": f2_roster,
             }
         },
         "score": {"faction1": score_f1, "faction2": score_f2},
