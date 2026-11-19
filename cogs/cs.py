@@ -638,7 +638,7 @@ class CSCommands(commands.Cog):
         poziomy = [
             (1, 0, 500), (2, 501, 750), (3, 751, 900), (4, 901, 1050),
             (5, 1051, 1200), (6, 1201, 1350), (7, 1351, 1530),
-            (8, 1531, 1750), (9, 1751, 1999), (10, 2000, 99999)
+            (8, 1531, 1750), (9, 1751, 2000), (10, 2001, 99999)
         ]
         
         do_awansu = 0
@@ -649,7 +649,7 @@ class CSCommands(commands.Cog):
                 do_spadku = obecne_elo - min_elo
                 break
                 
-        if obecne_elo >= 2000:
+        if obecne_elo >= 2001:
             opis = "Maksymalny poziom (Level 10) osiągnięty!"
             kolor = 0xFFD700
         else:
@@ -1380,7 +1380,7 @@ class CSCommands(commands.Cog):
             else:
                 parsed_args.append(arg)
                 
-        limit = min(max(2, limit), 100)
+        limit = min(max(2, limit), 200)
         
         faceit_nick, display_name = self.parse_identifier(ctx, parsed_args)
         if not await self.check_nick(ctx, faceit_nick, parsed_args[0] if parsed_args else None):

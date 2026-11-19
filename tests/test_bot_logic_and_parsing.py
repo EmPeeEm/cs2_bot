@@ -168,5 +168,36 @@ class TestBotLogicAndParsing(unittest.TestCase):
         self.assertEqual(get_half_str("CANCELLED", 0), "Mecz anulowany")
         self.assertEqual(get_half_str("VOTING", 0), "Veto / Łączenie z serwerem")
 
+    def test_generuj_wykres_elo(self):
+        """Weryfikacja generowania wykresu ELO i obsługi przypadków brzegowych."""
+        from utils.charts import generuj_wykres_elo
+        import discord
+
+        # Za mało danych (< 2)
+        self.assertIsNone(generuj_wykres_elo("gracz", []))
+        self.assertIsNone(generuj_wykres_elo("gracz", [1500]))
+
+        # Prawidłowy wykres (krótka seria <= 10)
+        plik_krotki = generuj_wykres_elo("gracz1", [1500, 1525, 1510])
+        self.assertIsInstance(plik_krotki, discord.File)
+        self.assertEqual(plik_krotki.filename, "wykres_elo.png")
+
+        # Scalanie kolizji: ostatni mecz to MAX
+        plik_max = generuj_wykres_elo("gracz2", [1500, 1510, 1550])
+        self.assertIsInstance(plik_max, discord.File)
+
+        # Scalanie kolizji: ostatni mecz to MIN
+        plik_min = generuj_wykres_elo("gracz3", [1550, 1520, 1490])
+        self.assertIsInstance(plik_min, discord.File)
+
+        # Wszystkie wartości identyczne
+        plik_rowne = generuj_wykres_elo("gracz4", [1500, 1500, 1500])
+        self.assertIsInstance(plik_rowne, discord.File)
+
+        # Długa seria (100 meczów)
+        dluga_seria = [1800 + (i % 25) * 5 for i in range(100)]
+        plik_dlugi = generuj_wykres_elo("gracz5", dluga_seria)
+        self.assertIsInstance(plik_dlugi, discord.File)
+
 if __name__ == "__main__":
     unittest.main()
